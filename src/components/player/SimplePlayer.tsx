@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, FolderOpen, Play, Volume2, VolumeX, ArrowUpDown } from 'lucide-react';
+import { X, FolderOpen, Play, VolumeX, ArrowUpDown } from 'lucide-react';
 
 export const SimplePlayer: React.FC = () => {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
