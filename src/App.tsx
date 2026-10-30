@@ -9,7 +9,15 @@ import { HomeView } from './views/HomeView';
 import { MoviesView } from './views/MoviesView';
 import { SeriesView } from './views/SeriesView';
 import { LiveTvView } from './views/LiveTvView';
-import { LibraryView } from './views/LibraryView';
+import { VideosView } from './views/VideosView';
+import { MusicView } from './views/MusicView';
+import { FoldersView } from './views/FoldersView';
+import { StreamsView } from './views/StreamsView';
+import { AboutView } from './views/AboutView';
+import { ContactView } from './views/ContactView';
+import { PrivacyPolicyView } from './views/PrivacyPolicyView';
+import { TermsView } from './views/TermsView';
+import { FaqView } from './views/FaqView';
 import { VideosView } from './views/VideosView';
 import { MusicView } from './views/MusicView';
 import { FoldersView } from './views/FoldersView';
@@ -211,16 +219,16 @@ export function App() {
           <LiveTvView onPlayMedia={handlePlayMedia} />
         )}
         {currentTab === 'videos' && (
-          <VideosView onPlayMedia={handlePlayMedia} />
+          <VideosView onPlayMedia={handlePlayMedia} onRefresh={() => {}} />
         )}
         {currentTab === 'music' && (
-          <MusicView onPlayMedia={handlePlayMedia} />
+          <MusicView onPlayMedia={handlePlayMedia} onRefresh={() => {}} />
         )}
         {currentTab === 'folders' && (
-          <FoldersView onPlayMedia={handlePlayMedia} />
+          <FoldersView onPlayMedia={handlePlayMedia} onRefresh={() => {}} />
         )}
         {currentTab === 'streams' && (
-          <StreamsView onPlayMedia={handlePlayMedia} />
+          <StreamsView onPlayMedia={handlePlayMedia} onRefresh={() => {}} />
         )}
         {currentTab === 'about' && (
           <AboutView />
@@ -239,6 +247,7 @@ export function App() {
         )}
 
       {/* Footer */}
+      </main>
       <Footer
         onSelectTab={handleSelectTab}
         onOpenAbout={() => setIsAboutOpen(true)}

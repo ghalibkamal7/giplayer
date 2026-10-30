@@ -1,10 +1,6 @@
 import React from 'react';
 import {
   Play,
-  Film,
-  Tv,
-  Radio,
-  FolderHeart,
   Search,
   Download,
   Settings,

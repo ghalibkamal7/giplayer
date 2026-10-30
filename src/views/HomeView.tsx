@@ -1,11 +1,76 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, TrendingUp, Tv, Radio, Layers } from 'lucide-react';
 import { MediaItem, PlaybackProgress } from '../types';
-import { CATALOG, GENRES } from '../data/catalog';
 import { storage } from '../services/storage';
 import { HeroBanner } from '../components/media/HeroBanner';
 import { MediaCard } from '../components/media/MediaCard';
 import { ContinueWatchingCard } from '../components/media/ContinueWatchingCard';
+import { localMedia } from '../services/localMedia';
+
+interface HomeViewProps {
+  onPlayMedia: (item: MediaItem) => void;
+  onNavigateTab: (tab: string) => void;
+}
+
+export const HomeView: React.FC<HomeViewProps> = ({ onPlayMedia, onNavigateTab }) => {
+  const [continueWatching, setContinueWatching] = useState<PlaybackProgress[]>([]);
+
+  const refreshProgress = () => {
+    setContinueWatching(storage.getContinueWatchingList());
+  };
+
+  useEffect(() => {
+    refreshProgress();
+  }, []);
+
+  const videosCount = localMedia.getVideos().length;
+  const musicCount = localMedia.getAudio().length;
+  const foldersCount = localMedia.getFolders().length;
+  const streamsCount = localMedia.getStreams().length;
+
+  return (
+    <div className="space-y-10 pb-12 animate-fade-in">
+      {/* Continue Watching Section */}
+      {continueWatching.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+              Continue Watching
+            </h2>
+            <button
+              onClick={() => onNavigateTab('library')}
+              className="text-xs text-primary-400 hover:text-primary-300 font-semibold"
+            >
+              View All ({continueWatching.length})
+            </button>
+          </div>
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+            {continueWatching.map((p) => (
+              <ContinueWatchingCard
+                key={p.mediaId}
+                progress={p}
+                onPlay={onPlayMedia}
+                onRemove={(id) => {
+                  storage.removeProgress(id);
+                  refreshProgress();
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+      {/* Simple Overview */}
+      <section>
+        <h2 className="text-2xl font-bold text-white mb-4">Your Library Overview</h2>
+        <ul className="list-disc list-inside text-gray-200">
+          <li>{videosCount} Videos</li>
+          <li>{musicCount} Music Tracks</li>
+          <li>{foldersCount} Folders</li>
+          <li>{streamsCount} Streams</li>
+        </ul>
+      </section>
+    </div>
+  );
+};
 
 interface HomeViewProps {
   onPlayMedia: (item: MediaItem) => void;
