@@ -10,16 +10,16 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'robots.txt', 'icons/*.png'],
       manifest: {
-        name: 'GIPlayer - Premium Media Player',
+        name: 'GIPlayer — Offline Video & Music Player',
         short_name: 'GIPlayer',
-        description: 'Next-generation MX Player Pro-inspired streaming media & HTML5 video player',
+        description: 'High-performance offline local video and music player with MX-style gestures and 200% volume boost.',
         theme_color: '#090a0f',
         background_color: '#090a0f',
         display: 'standalone',
         orientation: 'any',
         start_url: '/',
         scope: '/',
-        categories: ['entertainment', 'video', 'multimedia', 'music'],
+        categories: ['utilities', 'multimedia', 'music', 'video'],
         icons: [
           {
             src: '/icons/icon-192x192.png',
@@ -42,14 +42,24 @@ export default defineConfig({
         ],
         shortcuts: [
           {
-            name: 'My Library',
-            url: '/#library',
-            description: 'Open your saved media and local files'
+            name: 'Local Videos',
+            url: '/#videos',
+            description: 'Open and play local videos'
           },
           {
-            name: 'Live TV',
-            url: '/#livetv',
-            description: 'Watch live streaming channels'
+            name: 'Music & Audio',
+            url: '/#music',
+            description: 'Play local music tracks and songs'
+          },
+          {
+            name: 'Local Folders',
+            url: '/#folders',
+            description: 'Browse local media folders'
+          },
+          {
+            name: 'Network Streams',
+            url: '/#streams',
+            description: 'Play live video or audio streams'
           }
         ]
       },

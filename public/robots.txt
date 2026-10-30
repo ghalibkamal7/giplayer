@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://giplayer.vercel.app/sitemap.xml

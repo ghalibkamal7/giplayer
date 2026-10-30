@@ -10,6 +10,15 @@ import { MoviesView } from './views/MoviesView';
 import { SeriesView } from './views/SeriesView';
 import { LiveTvView } from './views/LiveTvView';
 import { LibraryView } from './views/LibraryView';
+import { VideosView } from './views/VideosView';
+import { MusicView } from './views/MusicView';
+import { FoldersView } from './views/FoldersView';
+import { StreamsView } from './views/StreamsView';
+import { AboutView } from './views/AboutView';
+import { ContactView } from './views/ContactView';
+import { PrivacyPolicyView } from './views/PrivacyPolicyView';
+import { TermsView } from './views/TermsView';
+import { FaqView } from './views/FaqView';
 import { VideoPlayer } from './components/player/VideoPlayer';
 import { PwaInstallModal } from './components/modals/PwaInstallModal';
 import { QuickPlayModal } from './components/modals/QuickPlayModal';
@@ -86,7 +95,7 @@ export function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
-      if (['home', 'movies', 'series', 'livetv', 'library'].includes(hash)) {
+      if (['home', 'movies', 'series', 'livetv', 'library', 'videos', 'music', 'folders', 'streams', 'about', 'contact', 'privacy', 'terms', 'faq'].includes(hash)) {
         setCurrentTab(hash);
       }
     };
@@ -201,13 +210,33 @@ export function App() {
         {currentTab === 'livetv' && (
           <LiveTvView onPlayMedia={handlePlayMedia} />
         )}
-        {currentTab === 'library' && (
-          <LibraryView
-            onPlayMedia={handlePlayMedia}
-            onOpenQuickPlay={() => setIsQuickPlayOpen(true)}
-          />
+        {currentTab === 'videos' && (
+          <VideosView onPlayMedia={handlePlayMedia} />
         )}
-      </main>
+        {currentTab === 'music' && (
+          <MusicView onPlayMedia={handlePlayMedia} />
+        )}
+        {currentTab === 'folders' && (
+          <FoldersView onPlayMedia={handlePlayMedia} />
+        )}
+        {currentTab === 'streams' && (
+          <StreamsView onPlayMedia={handlePlayMedia} />
+        )}
+        {currentTab === 'about' && (
+          <AboutView />
+        )}
+        {currentTab === 'contact' && (
+          <ContactView />
+        )}
+        {currentTab === 'privacy' && (
+          <PrivacyPolicyView />
+        )}
+        {currentTab === 'terms' && (
+          <TermsView />
+        )}
+        {currentTab === 'faq' && (
+          <FaqView />
+        )}
 
       {/* Footer */}
       <Footer

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Film, Tv, Radio, FolderHeart } from 'lucide-react';
+import { Play, Video, Music, Folder, PlayCircle, Info, Mail, Shield, FileText, HelpCircle, Film, Tv, Radio, FolderHeart } from 'lucide-react';
 
 interface BottomNavProps {
   currentTab: string;
@@ -9,9 +9,15 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onSelectTab }) => {
   const navItems = [
     { id: 'home', label: 'Home', icon: Play },
-    { id: 'movies', label: 'Movies', icon: Film },
-    { id: 'series', label: 'Series', icon: Tv },
-    { id: 'livetv', label: 'Live TV', icon: Radio },
+    { id: 'videos', label: 'Videos', icon: Video },
+    { id: 'music', label: 'Music', icon: Music },
+    { id: 'folders', label: 'Folders', icon: Folder },
+    { id: 'streams', label: 'Streams', icon: PlayCircle },
+    { id: 'about', label: 'About', icon: Info },
+    { id: 'contact', label: 'Contact', icon: Mail },
+    { id: 'privacy', label: 'Privacy', icon: Shield },
+    { id: 'terms', label: 'Terms', icon: FileText },
+    { id: 'faq', label: 'FAQ', icon: HelpCircle },
     { id: 'library', label: 'Library', icon: FolderHeart },
   ];
 

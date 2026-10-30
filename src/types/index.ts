@@ -1,4 +1,4 @@
-export type MediaType = 'movie' | 'series' | 'livetv' | 'local';
+export type MediaType = 'video' | 'audio' | 'stream' | 'local' | 'movie' | 'series' | 'livetv';
 
 export interface SubtitleTrack {
   id: string;
@@ -23,16 +23,23 @@ export interface Episode {
 export interface MediaItem {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   type: MediaType;
-  category: string;
+  mediaKind: 'video' | 'audio' | 'stream';
+  category?: string;
   videoUrl: string;
-  posterUrl: string;
-  backdropUrl: string;
-  duration: number; // in seconds (0 for live)
-  releaseYear: number;
-  rating: number; // e.g. 8.7
-  genres: string[];
+  posterUrl?: string;
+  backdropUrl?: string;
+  duration: number; // in seconds
+  fileSize?: number; // in bytes
+  fileName?: string;
+  folderPath?: string;
+  fileMimeType?: string;
+  dateAdded?: number;
+  lastModified?: number;
+  releaseYear?: number;
+  rating?: number;
+  genres?: string[];
   isLive?: boolean;
   streamType?: 'hls' | 'mp4' | 'dash' | 'webm' | 'blob';
   subtitles?: SubtitleTrack[];
@@ -41,10 +48,18 @@ export interface MediaItem {
     title: string;
     episodes: Episode[];
   }[];
-  // Live channel extra info
   channelNumber?: number;
   currentProgram?: string;
   nextProgram?: string;
+}
+
+export interface MediaFolder {
+  path: string;
+  name: string;
+  videoCount: number;
+  audioCount: number;
+  totalSize: number;
+  items: MediaItem[];
 }
 
 export interface PlaybackProgress {
@@ -62,12 +77,13 @@ export interface WatchHistoryItem {
   mediaId: string;
   title: string;
   type: MediaType;
-  posterUrl: string;
+  posterUrl?: string;
   watchedAt: number;
   currentTime: number;
   duration: number;
   percentage: number;
   episodeTitle?: string;
+  mediaKind?: 'video' | 'audio' | 'stream';
 }
 
 export type AspectRatioMode = 'contain' | 'cover' | 'fill' | '16:9' | '4:3';

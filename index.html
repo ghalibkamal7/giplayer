@@ -2,10 +2,35 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>GIPlayer — Premium Media & Video Player</title>
-    <meta name="description" content="Premium MX Player Pro-inspired media streaming and HTML5 video player progressive web application." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
     
+    <!-- Primary SEO Meta Tags -->
+    <title>GIPlayer — Free Offline Video & Music Player | MX Style PWA</title>
+    <meta name="title" content="GIPlayer — Free Offline Video & Music Player | MX Style PWA" />
+    <meta name="description" content="GIPlayer is a high-performance offline local media player and installable PWA. Play local video folders, audio and music files, and network streams with MX Player touch gestures, 200% audio boost, and zero server uploads." />
+    <meta name="keywords" content="media player, local video player, music player, offline pwa, mx player web, web audio booster, gesture video player, hls stream player, local folder player, private video player" />
+    <meta name="author" content="GIPlayer" />
+    <meta name="robots" content="index, follow" />
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://giplayer.vercel.app/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://giplayer.vercel.app/" />
+    <meta property="og:title" content="GIPlayer — Free Offline Video & Music Player | MX Style PWA" />
+    <meta property="og:description" content="High-performance offline media player for local video and music files. Featuring MX-style brightness/volume swipe gestures, 200% audio booster, and subtitle synchronization." />
+    <meta property="og:image" content="https://giplayer.vercel.app/icons/icon-512x512.png" />
+    <meta property="og:site_name" content="GIPlayer" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://giplayer.vercel.app/" />
+    <meta name="twitter:title" content="GIPlayer — Free Offline Video & Music Player | MX Style PWA" />
+    <meta name="twitter:description" content="High-performance offline media player for local video and music files. Featuring MX-style swipe gestures, 200% volume boost, and complete privacy." />
+    <meta name="twitter:image" content="https://giplayer.vercel.app/icons/icon-512x512.png" />
+
     <!-- PWA & Mobile Web App Meta Tags -->
     <meta name="theme-color" content="#090a0f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,15 +40,45 @@
     <meta name="application-name" content="GIPlayer" />
     <meta name="format-detection" content="telephone=no" />
 
-    <!-- Icons -->
+    <!-- Favicon & Icons -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
-    <!-- Google Fonts Inter -->
+    <!-- Google Fonts Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+
+    <!-- JSON-LD Structured Data for SoftwareApplication / WebApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "GIPlayer",
+      "url": "https://giplayer.vercel.app/",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "All modern browsers (Windows, macOS, Linux, Android, iOS)",
+      "description": "A privacy-first offline media player Progressive Web App. Play local video folders, audio tracks, and custom network streams with touch gestures, 200% volume boost, and WebVTT subtitle synchronization without uploading files to any server.",
+      "browserRequirements": "Requires HTML5 Video, File API, and Web Audio API support.",
+      "softwareVersion": "1.0.0",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "Local folder and multi-file video & audio import",
+        "MX Player Pro touch gestures (Brightness, Volume, Seek scrub)",
+        "Web Audio 200% volume booster for low-volume audio",
+        "Offline Progressive Web App (PWA) with zero server uploads",
+        "WebVTT and SRT subtitle synchronization and custom file loading",
+        "Network stream playback for HLS (.m3u8) and direct video feeds",
+        "Audio visualizer HUD for local songs and music playback",
+        "Keyboard shortcuts and Picture-in-Picture mode"
+      ]
+    }
+    </script>
   </head>
   <body class="bg-background text-gray-100 min-h-screen selection:bg-primary selection:text-white antialiased overflow-x-hidden">
     <div id="root"></div>

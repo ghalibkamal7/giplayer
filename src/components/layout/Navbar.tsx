@@ -9,6 +9,15 @@ import {
   Download,
   Settings,
   PlusCircle,
+  Video,
+  Music,
+  Folder,
+  PlayCircle,
+  Info,
+  Mail,
+  Shield,
+  FileText,
+  HelpCircle,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -32,10 +41,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const navItems = [
     { id: 'home', label: 'Home', icon: Play },
-    { id: 'movies', label: 'Movies', icon: Film },
-    { id: 'series', label: 'Web Series', icon: Tv },
-    { id: 'livetv', label: 'Live TV', icon: Radio },
-    { id: 'library', label: 'My Library', icon: FolderHeart },
+    { id: 'videos', label: 'Videos', icon: Video },
+    { id: 'music', label: 'Music', icon: Music },
+    { id: 'folders', label: 'Folders', icon: Folder },
+    { id: 'streams', label: 'Streams', icon: PlayCircle },
+    { id: 'about', label: 'About', icon: Info },
+    { id: 'contact', label: 'Contact', icon: Mail },
+    { id: 'privacy', label: 'Privacy', icon: Shield },
+    { id: 'terms', label: 'Terms', icon: FileText },
+    { id: 'faq', label: 'FAQ', icon: HelpCircle },
   ];
 
   return (
