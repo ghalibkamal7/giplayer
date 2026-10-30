@@ -20,5 +20,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/App.tsx", "src/components/player/**/*.tsx"]
+  "include": ["src/App.tsx", "src/components/player/**/*.tsx", "src/components/library/**/*.tsx"]
 }
