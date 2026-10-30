@@ -1,4 +1,3 @@
-import React from 'react';
 import { X, Music, Languages, Layout, List, Share2, Info, Bookmark, BookOpen, Settings, Scissors, ToggleLeft, ToggleRight } from 'lucide-react';
 
 /**
@@ -12,7 +11,7 @@ export default function MoreOptionsMenu({ video, onClose }: { video: { url: stri
     // Future implementation goes here.
   };
 
-  const toggleSetting = (key: string, defaultVal: boolean) => () => {
+  const toggleSetting = (key: string) => () => {
     const current = localStorage.getItem(key);
     const next = current === 'true' ? 'false' : 'true';
     localStorage.setItem(key, next);
@@ -63,13 +62,13 @@ export default function MoreOptionsMenu({ video, onClose }: { video: { url: stri
         <div className="border-t border-gray-700 pt-4">
           <div className="flex items-center justify-between mb-2">
             <span>Video Display</span>
-            <button onClick={toggleSetting('giplayer-video-display', videoDisplay)} className="flex items-center">
+            <button onClick={toggleSetting('giplayer-video-display')} className="flex items-center">
               {videoDisplay ? <ToggleLeft className="w-6 h-6 text-blue-400" /> : <ToggleRight className="w-6 h-6 text-gray-400" />}
             </button>
           </div>
           <div className="flex items-center justify-between">
             <span>Shortcuts</span>
-            <button onClick={toggleSetting('giplayer-shortcuts', shortcutsEnabled)} className="flex items-center">
+            <button onClick={toggleSetting('giplayer-shortcuts')} className="flex items-center">
               {shortcutsEnabled ? <ToggleLeft className="w-6 h-6 text-blue-400" /> : <ToggleRight className="w-6 h-6 text-gray-400" />}
             </button>
           </div>

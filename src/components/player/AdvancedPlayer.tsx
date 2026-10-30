@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { ArrowLeft, Play, Pause, Settings, ArrowUpDown, Square, Slash, FastForward, Rewind } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Settings, Square, Slash, FastForward, Rewind } from 'lucide-react';
 import MoreOptionsMenu from './MoreOptionsMenu';
 
 export type AdvancedPlayerProps = {
