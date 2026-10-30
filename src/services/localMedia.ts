@@ -126,9 +126,9 @@ class LocalMediaService {
   }
 
   // Get only audio / music tracks
-  getAudioTracks(): MediaItem[] {
-    return this.getAllMedia().filter((m) => m.mediaKind === 'audio');
-  }
+  getAudio(): MediaItem[] { return this.getAudioTracks(); }
+
+  getAudioTracks(): MediaItem[] { return this.getAllMedia().filter((m) => m.mediaKind === 'audio'); }
 
   // Get only network streams
   getStreams(): MediaItem[] {

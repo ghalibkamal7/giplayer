@@ -37,7 +37,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ item, onPlay, onMoreInfo
           </span>
           <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-xs font-bold text-amber-400">
             <Star className="w-3.5 h-3.5 fill-amber-400" />
-            <span>{item.rating.toFixed(1)}</span>
+            <span>{item.rating?.toFixed(1) ?? '-'}</span>
           </div>
           <span className="text-xs font-semibold text-gray-300">
             {item.releaseYear}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Video, Music, Folder, PlayCircle, Info, Mail, Shield, FileText, HelpCircle, Film, Tv, Radio, FolderHeart } from 'lucide-react';
+import { Play, Video, Music, Folder, PlayCircle, Info, Mail, Shield, FileText, HelpCircle, FolderHeart } from 'lucide-react';
 
 interface BottomNavProps {
   currentTab: string;

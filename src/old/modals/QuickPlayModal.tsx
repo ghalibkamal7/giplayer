@@ -46,7 +46,7 @@ export const QuickPlayModal: React.FC<QuickPlayModalProps> = ({
       title,
       description: `Stream played from ${new URL(cleanUrl).hostname}`,
       type: isLive ? 'livetv' : 'movie',
-      category: 'Network Stream',
+      mediaKind: 'video',
       videoUrl: cleanUrl,
       posterUrl: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=600&auto=format&fit=crop&q=80',
       backdropUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1600&auto=format&fit=crop&q=80',
@@ -84,7 +84,7 @@ export const QuickPlayModal: React.FC<QuickPlayModalProps> = ({
       releaseYear: new Date().getFullYear(),
       rating: 8.5,
       genres: ['Local Media'],
-      streamType: 'blob',
+      mediaKind: 'video',
     };
 
     storage.addToCustomLibrary(localItem);

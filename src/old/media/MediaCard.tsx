@@ -67,10 +67,10 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         </button>
 
         {/* Rating Badge */}
-        {item.rating > 0 && (
+        {item.rating && item.rating > 0 && (
           <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 flex items-center gap-1 text-[11px] font-bold text-amber-400">
             <Star className="w-3 h-3 fill-amber-400" />
-            <span>{item.rating.toFixed(1)}</span>
+            <span>{item.rating?.toFixed(1) ?? '-'}</span>
           </div>
         )}
 
