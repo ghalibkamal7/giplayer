@@ -24,6 +24,7 @@ export type VideoFile = {
 type FolderEntry = { name: string; path: string; videos: VideoFile[] };
 type PlaylistView = 'playlists' | 'share' | 'privacy' | 'music' | 'stream' | null;
 type PickedFile = { file: File; path: string };
+type DirectoryScan = { files: PickedFile[]; inaccessible: number };
 const VIDEO_EXTENSIONS = new Set(['mp4', 'm4v', 'webm', 'mov', 'mkv', 'avi', 'ogv', '3gp', '3g2', 'ts', 'mts', 'm2ts', 'm2v', 'mpeg', 'mpg', 'wmv', 'flv', 'f4v', 'vob']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'weba', 'wma', 'aiff', 'alac', 'amr', 'mid', 'midi']);
 
@@ -103,14 +104,28 @@ async function createThumbnail(file: File): Promise<Pick<VideoFile, 'thumbnail' 
   }
 }
 
-async function readDirectory(handle: RememberedDirectoryHandle, parentPath = ''): Promise<PickedFile[]> {
+async function readDirectory(handle: RememberedDirectoryHandle, parentPath = ''): Promise<DirectoryScan> {
   const path = parentPath ? `${parentPath}/${handle.name}` : handle.name;
-  const pendingFiles: Promise<PickedFile[]>[] = [];
-  for await (const entry of handle.values()) {
-    if (entry.kind === 'directory') pendingFiles.push(readDirectory(entry, path));
-    else pendingFiles.push(entry.getFile().then((file) => [{ file, path: `${path}/${entry.name}` }]));
+  const files: PickedFile[] = [];
+  let inaccessible = 0;
+  try {
+    for await (const entry of handle.values()) {
+      try {
+        if (entry.kind === 'directory') {
+          const nested = await readDirectory(entry, path);
+          files.push(...nested.files);
+          inaccessible += nested.inaccessible;
+        } else {
+          files.push({ file: await entry.getFile(), path: `${path}/${entry.name}` });
+        }
+      } catch {
+        inaccessible += 1;
+      }
+    }
+  } catch {
+    inaccessible += 1;
   }
-  return (await Promise.all(pendingFiles)).flat();
+  return { files, inaccessible };
 }
 
 export const VideoLibrary = ({
@@ -142,7 +157,7 @@ export const VideoLibrary = ({
   const [isImporting, setIsImporting] = useState(false);
   const supportsDirectoryAccess = typeof window !== 'undefined'
     && window.isSecureContext
-    && 'showDirectoryPicker' in window;
+    && typeof (window as Window & { showDirectoryPicker?: () => Promise<RememberedDirectoryHandle> }).showDirectoryPicker === 'function';
 
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
 
@@ -168,7 +183,7 @@ export const VideoLibrary = ({
     playerLibrary.savePlaylists(next);
   };
 
-  const importFiles = async (picked: PickedFile[]) => {
+  const importFiles = async (picked: PickedFile[], inaccessible = 0) => {
     const generation = ++importGenerationRef.current;
     setIsImporting(true);
     const previousUrls = objectUrls.current;
@@ -196,8 +211,10 @@ export const VideoLibrary = ({
     const videoImports = imports.filter((item) => item.kind === 'video');
     const skipped = picked.length - imports.length;
     setNotice(imports.length
-      ? `${videoImports.length} videos and ${imports.length - videoImports.length} audio files found${skipped ? ` · ${skipped} unsupported files skipped` : ''}. Thumbnails are loading in the background.`
-      : 'No supported video or audio files were found. Try selecting individual files or a different folder.');
+      ? `${videoImports.length} videos and ${imports.length - videoImports.length} audio files found${skipped ? ` · ${skipped} unsupported files skipped` : ''}${inaccessible ? ` · ${inaccessible} items could not be read` : ''}. Thumbnails are loading in the background.`
+      : inaccessible
+        ? `No media files could be read from this folder (${inaccessible} inaccessible items). Check the folder permission and try again.`
+        : 'No supported video or audio files were found. Try selecting individual files or a different folder.');
     const thumbnailResults = new Map<string, Pick<VideoFile, 'thumbnail' | 'duration' | 'width' | 'height'>>();
     let nextIndex = 0;
     const workers = Array.from({ length: Math.min(4, videoImports.length) }, async () => {
@@ -228,8 +245,8 @@ export const VideoLibrary = ({
         setNeedsDirectoryPermission(false);
         const remembered = await playerLibrary.saveDirectoryHandle(handle);
         setIsImporting(true);
-        const picked = await readDirectory(handle);
-        await importFiles(picked);
+        const scan = await readDirectory(handle);
+        await importFiles(scan.files, scan.inaccessible);
         if (!remembered) {
           setNotice('Folder loaded. This browser cannot remember folder access, so select it again after reload.');
         }
@@ -266,7 +283,8 @@ export const VideoLibrary = ({
       }
       setNeedsDirectoryPermission(false);
       setIsImporting(true);
-      await importFiles(await readDirectory(handle));
+      const scan = await readDirectory(handle);
+      await importFiles(scan.files, scan.inaccessible);
     } catch (error) {
       console.error('Could not scan the remembered folder.', error);
       setNotice('Could not read the remembered folder. Check its browser permission or choose it again.');
@@ -288,8 +306,8 @@ export const VideoLibrary = ({
       try {
         if (await handle.queryPermission?.({ mode: 'read' }) === 'granted') {
           setIsImporting(true);
-          const picked = await readDirectory(handle);
-          if (active && directoryHandleRef.current === handle) await importFiles(picked);
+          const scan = await readDirectory(handle);
+          if (active && directoryHandleRef.current === handle) await importFiles(scan.files, scan.inaccessible);
         } else if (active) {
           setNeedsDirectoryPermission(true);
           setNotice('A folder was remembered. Tap Restore folder access to let GIPlayer scan it again.');
@@ -467,14 +485,14 @@ export const VideoLibrary = ({
             : needsDirectoryPermission
               ? 'Your browser remembers the folder, but needs your permission before GIPlayer can scan it.'
               : supportsDirectoryAccess
-                ? 'Select a folder once. GIPlayer can rescan it automatically on supported browsers while access remains granted.'
-                : 'For privacy, this browser cannot scan your device automatically. Select the videos or folders you want GIPlayer to show.'}
+                ? 'Choose a media folder and approve the browser prompt. GIPlayer scans compatible videos and music in that folder and its subfolders. It cannot request access to the rest of your device.'
+                : 'For privacy, this browser cannot scan your device automatically. Choose a folder or select the videos and music you want GIPlayer to show.'}
         </p>
         {!isCheckingLibrary && !isImporting && (
           <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
             {supportsDirectoryAccess
-              ? <button onClick={() => void (needsDirectoryPermission ? restoreRememberedFolder() : importFolder())} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />{needsDirectoryPermission ? 'Restore folder access' : 'Choose a folder'}</button>
-              : <button onClick={() => inputRef.current && 'webkitdirectory' in inputRef.current ? inputRef.current.click() : fileInputRef.current?.click()} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />Choose a folder</button>}
+              ? <button onClick={() => void (needsDirectoryPermission ? restoreRememberedFolder() : importFolder())} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />{needsDirectoryPermission ? 'Grant folder access' : 'Choose media folder'}</button>
+              : <button onClick={() => inputRef.current && 'webkitdirectory' in inputRef.current ? inputRef.current.click() : fileInputRef.current?.click()} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />Choose media folder</button>}
             <button onClick={() => fileInputRef.current?.click()} className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10"><Video className="mr-2 inline h-4 w-4" />Select videos and music</button>
           </div>
         )}
