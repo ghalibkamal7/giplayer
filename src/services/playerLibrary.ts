@@ -20,6 +20,13 @@ export interface RememberedDirectoryHandle {
   requestPermission?(descriptor: { mode: 'read' }): Promise<PermissionState>;
 }
 
+export interface MediaFolderNode<T> {
+  name: string;
+  path: string;
+  parentPath: string;
+  videos: T[];
+}
+
 const PLAYLISTS_KEY = 'giplayer-playlists';
 const BOOKMARKS_KEY = 'giplayer-bookmarks';
 const DIRECTORY_DATABASE = 'giplayer-library';
@@ -104,6 +111,23 @@ export const playerLibrary = {
       database?.close();
     }
   },
+  async clearDirectoryHandle(): Promise<void> {
+    if (typeof indexedDB === 'undefined') return;
+    let database: IDBDatabase | undefined;
+    try {
+      database = await openDirectoryDatabase();
+      await new Promise<void>((resolve, reject) => {
+        const request = database!.transaction(DIRECTORY_STORE, 'readwrite')
+          .objectStore(DIRECTORY_STORE).delete(DIRECTORY_KEY);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error ?? new Error('Could not clear the remembered folder.'));
+      });
+    } catch (error) {
+      console.warn('Could not clear the remembered folder.', error);
+    } finally {
+      database?.close();
+    }
+  },
   getPlaylists(): SavedPlaylist[] {
     return readJson<SavedPlaylist[]>(PLAYLISTS_KEY, []);
   },
@@ -131,4 +155,28 @@ export const playerLibrary = {
 
 export function makeVideoId(relativePath: string, file: File): string {
   return `${relativePath}:${file.size}:${file.lastModified}`;
+}
+
+export function getMediaDirectory(relativePath: string, rootFolderName = ''): string {
+  const parts = relativePath.split('/').filter(Boolean);
+  if (rootFolderName && parts[0] === rootFolderName) parts.shift();
+  return parts.slice(0, -1).join('/');
+}
+
+export function buildMediaFolderTree<T extends { relativePath: string; kind: 'video' | 'audio' }>(
+  media: T[],
+  rootFolderName = '',
+): MediaFolderNode<T>[] {
+  const folders = new Map<string, MediaFolderNode<T>>();
+  media.filter((item) => item.kind === 'video').forEach((item) => {
+    const parts = getMediaDirectory(item.relativePath, rootFolderName).split('/').filter(Boolean);
+    parts.forEach((name, index) => {
+      const path = parts.slice(0, index + 1).join('/');
+      const parentPath = parts.slice(0, index).join('/');
+      const folder = folders.get(path) ?? { name, path, parentPath, videos: [] };
+      folder.videos.push(item);
+      folders.set(path, folder);
+    });
+  });
+  return Array.from(folders.values());
 }

@@ -1,24 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#020617"/>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#132c46"/>
+      <stop offset="1" stop-color="#080f1c"/>
     </linearGradient>
-    <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="50%" stop-color="#0ea5e9"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#53dcff"/>
+      <stop offset="1" stop-color="#3885ff"/>
     </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="16" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
+    <linearGradient id="play" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fdff"/>
+      <stop offset="1" stop-color="#b9eaff"/>
+    </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
-  <rect width="504" height="504" x="4" y="4" rx="124" fill="none" stroke="url(#neon)" stroke-width="8" stroke-opacity="0.4"/>
-  <!-- Play triangle with modern sleek cuts -->
-  <g filter="url(#glow)">
-    <path d="M 195 130 C 182 122 165 131 165 147 L 165 365 C 165 381 182 390 195 382 L 372 273 C 384 266 384 246 372 239 Z" fill="url(#neon)"/>
-    <circle cx="340" cy="180" r="14" fill="#38bdf8" opacity="0.8"/>
-  </g>
+  <rect width="512" height="512" fill="url(#background)"/>
+  <circle cx="256" cy="256" r="205" fill="none" stroke="#38bdf8" stroke-opacity=".14" stroke-width="2"/>
+  <path d="M92 181a34 34 0 0 1 34-34h104l43 49h113a34 34 0 0 1 34 34v124a34 34 0 0 1-34 34H126a34 34 0 0 1-34-34z" fill="#0c1928" stroke="url(#accent)" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M111 221h290v130a20 20 0 0 1-20 20H131a20 20 0 0 1-20-20z" fill="url(#accent)" fill-opacity=".12"/>
+  <path d="m222 222 102 58-102 59z" fill="url(#play)"/>
+  <path d="M145 181h72" stroke="#83e7ff" stroke-linecap="round" stroke-width="12" opacity=".8"/>
 </svg>
