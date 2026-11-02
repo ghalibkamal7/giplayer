@@ -54,6 +54,14 @@
 - **Watch History**: Chronological history tracking with completion percentages and one-click clear history.
 - **Watchlist & Favorites**: Save movies and web series for quick access.
 
+### 📁 Browser Video Folders & Player Options
+- Import a folder with the browser's File System Access API where available, or use the standard browser folder/file picker. GIPlayer only receives access to items the user selects; websites do **not** have unrestricted Android or desktop filesystem access.
+- Imported `File` objects and thumbnail previews stay in memory for the current tab. Browser security restrictions mean local media must be selected again after a reload; GIPlayer remembers the last folder name and restores it after access is granted again. Playback positions, playlists, bookmarks, Video Display, and Shortcuts preferences are stored locally.
+- Browse folder counts, thumbnails, recently added labels, search results, name/date/size sorting, list/grid views, audio files, and playlists. Playlists preserve their order and resolve local files again after the source folder has been selected.
+- The full-screen player includes previous/next playback, seek and time controls, aspect ratios, speed, lock, auto-hiding controls, keyboard shortcuts, double-tap seeking, touch brightness/volume/scrubbing, external SRT/VTT subtitles with sync and styling, bookmarks, sleep timer, repeat, and compatible HLS streams.
+- Browser support varies: embedded audio-track selection and display orientation depend on the browser/device; brightness changes the video image rather than the device's system brightness; keep-awake uses the Screen Wake Lock API when permitted. HLS uses native support or hls.js; DASH playback works only if the browser natively supports the stream. Clip export uses MediaRecorder/captureStream when available and records the selected segment in real time; it never modifies the source file.
+- Sharing uses the native share sheet where supported. Private local paths and blob URLs are never shared or copied as public links. Network playback accepts direct HTTP(S) media URLs only and does not use a proxy.
+
 ---
 
 ### 📺 Curated Content Hub

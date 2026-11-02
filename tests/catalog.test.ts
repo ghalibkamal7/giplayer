@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CATALOG, GENRES } from '../src/data/catalog';
+import { CATALOG, GENRES } from '../src/old/data/catalog';
 
 describe('Catalog Data', () => {
   it('contains movies, series, and live tv items', () => {
