@@ -4,7 +4,7 @@ import {
   Grid2X2, List, LockKeyhole, Music2, Play, Plus, Search, Share2, Shield,
   Trash2, Video, X, Globe2,
 } from 'lucide-react';
-import { getPlayerPreference, makeVideoId, playerLibrary, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
+import { getPlayerPreference, makeVideoId, playerLibrary, RememberedDirectoryHandle, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
 import { NetworkStreamDialog } from '../player/MoreOptionsMenu';
 
 export type VideoFile = {
@@ -24,12 +24,6 @@ export type VideoFile = {
 type FolderEntry = { name: string; path: string; videos: VideoFile[] };
 type PlaylistView = 'playlists' | 'share' | 'privacy' | 'music' | 'stream' | null;
 type PickedFile = { file: File; path: string };
-type DirectoryFileHandle = { kind: 'file'; name: string; getFile(): Promise<File> };
-type DirectoryHandle = {
-  kind: 'directory'; name: string;
-  values(): AsyncIterable<DirectoryHandle | DirectoryFileHandle>;
-};
-
 const VIDEO_EXTENSIONS = new Set(['mp4', 'm4v', 'webm', 'mov', 'mkv', 'avi', 'ogv', '3gp', 'ts']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'weba']);
 
@@ -109,7 +103,7 @@ async function createThumbnail(file: File): Promise<Pick<VideoFile, 'thumbnail' 
   }
 }
 
-async function readDirectory(handle: DirectoryHandle, parentPath = ''): Promise<PickedFile[]> {
+async function readDirectory(handle: RememberedDirectoryHandle, parentPath = ''): Promise<PickedFile[]> {
   const path = parentPath ? `${parentPath}/${handle.name}` : handle.name;
   const files: PickedFile[] = [];
   for await (const entry of handle.values()) {
@@ -128,7 +122,10 @@ export const VideoLibrary = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
+  const directoryHandleRef = useRef<RememberedDirectoryHandle | null>(null);
   const [videos, setVideos] = useState<VideoFile[]>([]);
+  const [rememberedDirectoryName, setRememberedDirectoryName] = useState('');
+  const [needsDirectoryPermission, setNeedsDirectoryPermission] = useState(false);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [quickView, setQuickView] = useState<PlaylistView>(null);
   const [search, setSearch] = useState('');
@@ -197,11 +194,19 @@ export const VideoLibrary = ({
 
   const importFolder = async () => {
     const directoryWindow = window as Window & {
-      showDirectoryPicker?: () => Promise<DirectoryHandle>;
+      showDirectoryPicker?: () => Promise<RememberedDirectoryHandle>;
     };
     if (window.isSecureContext && directoryWindow.showDirectoryPicker) {
       try {
-        await importFiles(await readDirectory(await directoryWindow.showDirectoryPicker()));
+        const handle = await directoryWindow.showDirectoryPicker();
+        directoryHandleRef.current = handle;
+        setRememberedDirectoryName(handle.name);
+        setNeedsDirectoryPermission(false);
+        const remembered = await playerLibrary.saveDirectoryHandle(handle);
+        await importFiles(await readDirectory(handle));
+        if (!remembered) {
+          setNotice('Folder loaded. This browser cannot remember folder access, so select it again after reload.');
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setNotice('Folder access was unavailable. Choose a folder with the browser file picker instead.');
@@ -211,6 +216,57 @@ export const VideoLibrary = ({
       inputRef.current?.click();
     }
   };
+
+  const restoreRememberedFolder = async () => {
+    try {
+      const handle = directoryHandleRef.current ?? await playerLibrary.getDirectoryHandle();
+      if (!handle) {
+        setNotice('No remembered folder is available. Choose a folder to start your library.');
+        await importFolder();
+        return;
+      }
+      directoryHandleRef.current = handle;
+      setRememberedDirectoryName(handle.name);
+      let permission = await handle.queryPermission?.({ mode: 'read' });
+      if (permission !== 'granted') permission = await handle.requestPermission?.({ mode: 'read' });
+      if (permission !== 'granted') {
+        setNeedsDirectoryPermission(true);
+        setNotice(`Allow folder access in your browser to scan ${handle.name}.`);
+        return;
+      }
+      setNeedsDirectoryPermission(false);
+      await importFiles(await readDirectory(handle));
+    } catch (error) {
+      console.error('Could not scan the remembered folder.', error);
+      setNotice('Could not read the remembered folder. Check its browser permission or choose it again.');
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const handle = await playerLibrary.getDirectoryHandle();
+      if (!active || !handle) return;
+      directoryHandleRef.current = handle;
+      setRememberedDirectoryName(handle.name);
+      try {
+        if (await handle.queryPermission?.({ mode: 'read' }) === 'granted') {
+          const picked = await readDirectory(handle);
+          if (active && directoryHandleRef.current === handle) await importFiles(picked);
+        } else if (active) {
+          setNeedsDirectoryPermission(true);
+          setNotice('A folder was remembered. Tap Restore folder access to let GIPlayer scan it again.');
+        }
+      } catch (error) {
+        console.error('Could not automatically scan the remembered folder.', error);
+        if (active) {
+          setNeedsDirectoryPermission(true);
+          setNotice('Could not automatically scan the remembered folder. Tap Restore folder access to retry.');
+        }
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   const handleFallbackImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -299,6 +355,7 @@ export const VideoLibrary = ({
         </div>
         <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label="Search"><Search className="h-5 w-5" /></button>
         <button onClick={() => setGrid((value) => !value)} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
+        {needsDirectoryPermission && <button onClick={() => void restoreRememberedFolder()} className="shrink-0 rounded-full bg-sky-500/15 px-3 py-2 text-xs font-semibold text-sky-300" title={`Restore access to ${rememberedDirectoryName}`} aria-label="Restore remembered folder access">Restore folder</button>}
         <button onClick={() => void importFolder()} className="hidden shrink-0 rounded-full p-2 text-sky-300 hover:bg-sky-400/10 min-[300px]:block" aria-label="Choose local folder" title="Choose local folder"><FolderOpen className="h-5 w-5" /></button>
       </div>
       {searchOpen && (
@@ -336,7 +393,7 @@ export const VideoLibrary = ({
   );
 
   const mainContent = () => {
-    if (quickView === 'privacy') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Shield className="mb-4 h-9 w-9 text-sky-400" /><h2 className="text-lg font-bold">Your files stay in your browser</h2><p className="mt-2 text-sm leading-6 text-slate-300">GIPlayer can read only files and folders you explicitly choose. Browsers do not grant websites unrestricted access to Android or desktop storage. Selected files are held in memory for this tab and must be selected again after a reload; playback positions and playlists are stored locally.</p></section>;
+    if (quickView === 'privacy') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Shield className="mb-4 h-9 w-9 text-sky-400" /><h2 className="text-lg font-bold">Your files stay in your browser</h2><p className="mt-2 text-sm leading-6 text-slate-300">GIPlayer can read only files and folders you explicitly choose. Browsers do not grant websites unrestricted access to Android or desktop storage. On supported browsers, GIPlayer remembers your selected folder handle and scans it again when permission remains available; some browsers require you to restore access after reload. Selected file data stays in memory for this tab, while playback positions and playlists are stored locally.</p></section>;
     if (quickView === 'share') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Share2 className="mb-4 h-9 w-9 text-sky-400" /><h2 className="text-lg font-bold">Share a selected file</h2><p className="mt-2 text-sm leading-6 text-slate-300">Use your device share sheet on an imported item. If the browser cannot share files, GIPlayer will explain that a private local file cannot be shared as a public link.</p>{videos.length ? <div className="mt-5 grid gap-2">{videos.map((video) => <div key={video.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3"><span className="truncate pr-3 text-sm">{video.name}</span><button onClick={() => void shareVideo(video)} className="rounded-full bg-sky-500/15 p-2 text-sky-300" aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button></div>)}</div> : <p className="mt-5 text-sm text-slate-400">Choose a folder first to browse your files.</p>}</section>;
     if (quickView === 'stream') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Globe2 className="mb-4 h-9 w-9 text-sky-400" /><h2 className="mb-4 text-lg font-bold">Play a network stream</h2><NetworkStreamDialog onPlay={onOpenStream} /></section>;
     if (quickView === 'playlists') return (
