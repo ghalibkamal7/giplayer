@@ -133,9 +133,17 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const [toast, setToast] = useState('');
   const queueIndex = queue.findIndex((entry) => entry.id === video.id);
   const persistPlayback = useCallback(() => {
+    if (video.privateVault) {
+      try {
+        localStorage.removeItem(`giplayer-playback:${video.id}`);
+      } catch (error) {
+        console.error('Could not clear private media playback position.', error);
+      }
+      return;
+    }
     const element = videoRef.current;
     if (element && element.duration > 0) setPlayerPreference(`giplayer-playback:${video.id}`, String(element.currentTime));
-  }, [video.id]);
+  }, [video.id, video.privateVault]);
   const ratioStyles = useMemo((): React.CSSProperties => {
     switch (aspectRatio) {
       case 'Fill': return { objectFit: 'cover' };
@@ -171,7 +179,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     hlsRef.current?.destroy();
     hlsRef.current = null;
     element.removeAttribute('src');
-    const saved = Number(getPlayerPreference(`giplayer-playback:${video.id}`, '0'));
+    const saved = video.privateVault ? 0 : Number(getPlayerPreference(`giplayer-playback:${video.id}`, '0'));
 
     if (/\.m3u8(?:$|[?#])/i.test(video.url) && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 60 });
@@ -210,7 +218,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
-  }, [video.id, video.url]);
+  }, [video.id, video.url, video.privateVault]);
 
   useEffect(() => {
     if (keepAwake && 'wakeLock' in navigator) {

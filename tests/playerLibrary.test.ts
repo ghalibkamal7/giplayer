@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildMediaFolderTree, getMediaDirectory, makeVideoId, playerLibrary } from '../src/services/playerLibrary';
+import { buildMediaFolderTree, getMediaDirectory, getPlayerPreference, makeVideoId, playerLibrary, setPlayerPreference } from '../src/services/playerLibrary';
 
 const storage = new Map<string, string>();
 
@@ -21,12 +21,39 @@ describe('player library persistence', () => {
     expect(playerLibrary.getPlaylists()).toEqual(playlists);
   });
 
+  it('persists a local-only profile and unique favorite ids', () => {
+    const profile = { displayName: 'Alex', email: 'alex@example.test', avatar: 'data:image/jpeg;base64,abc' };
+    playerLibrary.saveProfile(profile);
+    playerLibrary.saveFavorites(['video-1', 'video-1', 'video-2']);
+    expect(playerLibrary.getProfile()).toEqual(profile);
+    expect(playerLibrary.getFavorites()).toEqual(['video-1', 'video-2']);
+  });
+
+  it('persists the player display and shortcut toggles', () => {
+    setPlayerPreference('giplayer-video-display', 'false');
+    setPlayerPreference('giplayer-shortcuts', 'false');
+    expect(getPlayerPreference('giplayer-video-display', 'true')).toBe('false');
+    expect(getPlayerPreference('giplayer-shortcuts', 'true')).toBe('false');
+  });
+
   it('persists bookmarks independently for each video', () => {
     const bookmark = { id: 'mark-1', time: 82, note: 'Opening scene', createdAt: 456 };
     playerLibrary.saveBookmarks('video-1', [bookmark]);
     playerLibrary.saveBookmarks('video-2', []);
     expect(playerLibrary.getBookmarks('video-1')).toEqual([bookmark]);
     expect(playerLibrary.getBookmarks('video-2')).toEqual([]);
+  });
+
+  it('removes private media references from playlists, favorites, bookmarks, and playback positions', () => {
+    playerLibrary.savePlaylists([{ id: 'list-1', name: 'Queue', videoIds: ['private-1', 'public-1'], updatedAt: 1 }]);
+    playerLibrary.saveFavorites(['private-1', 'public-1']);
+    playerLibrary.saveBookmarks('private-1', [{ id: 'mark-1', time: 12, note: 'Private note', createdAt: 1 }]);
+    setPlayerPreference('giplayer-playback:private-1', '12');
+    const updated = playerLibrary.removeMediaReferences(['private-1']);
+    expect(updated[0].videoIds).toEqual(['public-1']);
+    expect(playerLibrary.getFavorites()).toEqual(['public-1']);
+    expect(playerLibrary.getBookmarks('private-1')).toEqual([]);
+    expect(getPlayerPreference('giplayer-playback:private-1', '')).toBe('');
   });
 
   it('uses the selected path and file metadata for a stable media identity', () => {

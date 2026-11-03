@@ -1,11 +1,14 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, Check, ChevronRight, Folder, FolderOpen,
-  Grid2X2, List, LockKeyhole, Music2, Play, Plus, RefreshCw, Search, Share2, Shield,
-  Trash2, Video, X, Globe2,
+  Grid2X2, Heart, List, LockKeyhole, Music2, Play, Plus, RefreshCw, Search, Share2,
+  Trash2, Video, X, Globe2, UserRound, Clock3, Settings2,
 } from 'lucide-react';
-import { buildMediaFolderTree, getMediaDirectory, getPlayerPreference, makeVideoId, playerLibrary, RememberedDirectoryHandle, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
+import { buildMediaFolderTree, getMediaDirectory, getPlayerPreference, makeVideoId, playerLibrary, RememberedDirectoryHandle, SavedDirectory, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
+import { fingerprintMediaId, getVaultFingerprints, getVaultMediaIdentity } from '../../services/privacyVault';
 import { NetworkStreamDialog } from '../player/MoreOptionsMenu';
+import PrivacyVault from './PrivacyVault';
+import type { DecryptedVaultMedia } from '../../services/privacyVault';
 
 export type VideoFile = {
   id: string;
@@ -19,11 +22,13 @@ export type VideoFile = {
   height?: number;
   lastModified: number;
   kind: 'video' | 'audio';
+  sourceId?: string;
+  privateVault?: boolean;
 };
 
 type FolderEntry = { name: string; path: string; parentPath: string; videos: VideoFile[] };
-type PlaylistView = 'playlists' | 'share' | 'privacy' | 'music' | 'stream' | null;
-type PickedFile = { file: File; path: string };
+type PlaylistView = 'playlists' | 'share' | 'privacy' | 'music' | 'stream' | 'folders' | 'profile' | 'favorites' | 'recent' | 'continue' | 'settings' | null;
+type PickedFile = { file: File; path: string; sourceId?: string };
 type DirectoryScan = { files: PickedFile[]; inaccessible: number };
 const VIDEO_EXTENSIONS = new Set(['mp4', 'm4v', 'webm', 'mov', 'mkv', 'avi', 'ogv', '3gp', '3g2', 'ts', 'mts', 'm2ts', 'm2v', 'mpeg', 'mpg', 'wmv', 'flv', 'f4v', 'vob']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'weba', 'wma', 'aiff', 'alac', 'amr', 'mid', 'midi']);
@@ -131,17 +136,26 @@ async function readDirectory(handle: RememberedDirectoryHandle, parentPath = '')
 export const VideoLibrary = ({
   onSelect,
   onOpenStream,
+  onVaultLock,
 }: {
   onSelect: (video: VideoFile, queue: VideoFile[], library: VideoFile[]) => void;
   onOpenStream: (url: string) => void;
+  onVaultLock: () => void;
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrls = useRef<string[]>([]);
-  const directoryHandleRef = useRef<RememberedDirectoryHandle | null>(null);
+  const videosRef = useRef<VideoFile[]>([]);
   const importGenerationRef = useRef(0);
   const [videos, setVideos] = useState<VideoFile[]>([]);
-  const [rootFolderName, setRootFolderName] = useState('');
+  const [requestedVaultVideos, setRequestedVaultVideos] = useState<VideoFile[]>([]);
+  const [favorites, setFavorites] = useState(() => new Set(playerLibrary.getFavorites()));
+  const [profile, setProfile] = useState(() => playerLibrary.getProfile());
+  const [profileDraft, setProfileDraft] = useState(() => playerLibrary.getProfile());
+  const [displayEnabled, setDisplayEnabled] = useState(() => getPlayerPreference('giplayer-video-display', 'true') !== 'false');
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(() => getPlayerPreference('giplayer-shortcuts', 'true') !== 'false');
+  const [savedDirectories, setSavedDirectories] = useState<SavedDirectory[]>([]);
+  const [pendingDirectoryIds, setPendingDirectoryIds] = useState<string[]>([]);
   const [rememberedDirectoryName, setRememberedDirectoryName] = useState('');
   const [needsDirectoryPermission, setNeedsDirectoryPermission] = useState(false);
   const [isCheckingLibrary, setIsCheckingLibrary] = useState(true);
@@ -162,15 +176,43 @@ export const VideoLibrary = ({
 
   useEffect(() => () => objectUrls.current.forEach(URL.revokeObjectURL), []);
 
-  const directoryFor = (video: VideoFile) => getMediaDirectory(video.relativePath, rootFolderName);
+  const updateVideos = (update: (current: VideoFile[]) => VideoFile[]) => {
+    const next = update(videosRef.current);
+    videosRef.current = next;
+    setVideos(next);
+  };
+
+  useEffect(() => {
+    if (quickView !== 'settings') return;
+    setDisplayEnabled(getPlayerPreference('giplayer-video-display', 'true') !== 'false');
+    setShortcutsEnabled(getPlayerPreference('giplayer-shortcuts', 'true') !== 'false');
+  }, [quickView]);
+
+  const directoryFor = (video: VideoFile) => {
+    const path = getMediaDirectory(video.relativePath);
+    return video.sourceId ? `${video.sourceId}/${video.relativePath.split('/')[0]}/${path.split('/').filter(Boolean).slice(1).join('/')}`.replace(/\/+$/, '') : path;
+  };
 
   const folderNodes = useMemo(() => {
-    const result = buildMediaFolderTree(videos, rootFolderName);
-    result.sort((a, b) => sort === 'date'
+    const originalVideos = new Map(videos.map((video) => [video.id, video]));
+    const result = buildMediaFolderTree(videos.map((video) => video.sourceId
+      ? { ...video, relativePath: `${video.sourceId}/${video.relativePath}` }
+      : video));
+    const roots = new Map(savedDirectories.map((directory) => [directory.id, directory.name]));
+    const visibleFolders = result.filter((folder) => !roots.has(folder.path));
+    visibleFolders.forEach((folder) => {
+      const [sourceId, rootName, ...nested] = folder.path.split('/');
+      if (roots.has(sourceId) && rootName) {
+        folder.name = nested.length ? nested[nested.length - 1] : roots.get(sourceId) ?? rootName;
+        if (roots.has(folder.parentPath)) folder.parentPath = '';
+      }
+      folder.videos = folder.videos.map((video) => originalVideos.get(video.id) ?? video);
+    });
+    visibleFolders.sort((a, b) => sort === 'date'
       ? Math.max(...b.videos.map((video) => video.lastModified)) - Math.max(...a.videos.map((video) => video.lastModified))
       : a.name.localeCompare(b.name));
-    return result;
-  }, [videos, rootFolderName, sort]);
+    return visibleFolders;
+  }, [videos, savedDirectories, sort]);
   const folders = folderNodes.filter((folder) => folder.parentPath === (activeFolder ?? ''));
 
   const savePlaylists = (next: SavedPlaylist[]) => {
@@ -178,43 +220,72 @@ export const VideoLibrary = ({
     playerLibrary.savePlaylists(next);
   };
 
-  const importFiles = async (picked: PickedFile[], inaccessible = 0, selectedRoot = '') => {
+  const importFiles = async (picked: PickedFile[], inaccessible = 0, replace = false, replaceSourceId?: string) => {
     const generation = ++importGenerationRef.current;
     setIsImporting(true);
-    const previousUrls = objectUrls.current;
-    objectUrls.current = [];
     const imports: VideoFile[] = [];
-    for (const { file, path } of picked) {
+    let vaultFingerprints: Set<string>;
+    try {
+      vaultFingerprints = await getVaultFingerprints();
+    } catch (error) {
+      console.error('Could not inspect the encrypted private media index before importing.', error);
+      setIsImporting(false);
+      setNotice('Could not verify which files belong to the Privacy Vault. Import stopped to avoid exposing private media.');
+      return;
+    }
+    let hiddenCount = 0;
+    for (const { file, path, sourceId } of picked) {
       const kind = isMediaFile(file);
       if (!kind) continue;
+      const identity = getVaultMediaIdentity(sourceId, path, file);
+      let isHidden: boolean;
+      if (!vaultFingerprints.size) {
+        isHidden = false;
+      } else {
+        try {
+          isHidden = vaultFingerprints.has(await fingerprintMediaId(identity));
+        } catch (error) {
+          console.error('Could not verify a media file against the Privacy Vault.', error);
+          setIsImporting(false);
+          setNotice('Could not verify this media file against the Privacy Vault. Import stopped to avoid exposing private media.');
+          return;
+        }
+      }
+      if (isHidden) {
+        hiddenCount += 1;
+        continue;
+      }
       const url = URL.createObjectURL(file);
-      objectUrls.current.push(url);
       imports.push({
-        id: makeVideoId(path, file), file, url, name: file.name,
-        relativePath: path, lastModified: file.lastModified, kind,
+        id: makeVideoId(sourceId ? `${sourceId}/${path}` : path, file), file, url, name: file.name,
+        relativePath: path, lastModified: file.lastModified, kind, sourceId,
       });
     }
-    objectUrls.current = imports.map((item) => item.url);
-    setRootFolderName(selectedRoot);
-    setVideos(imports);
-    setActiveFolder(null);
+    const currentVideos = videosRef.current;
+    const retained = currentVideos.filter((item) => !(replace && replaceSourceId && item.id.startsWith(`${replaceSourceId}/`))
+      && !(replace && !replaceSourceId));
+    const replaced = currentVideos.filter((item) => !retained.includes(item));
+    const knownIds = new Set(retained.map((item) => item.id));
+    const added = imports.filter((item) => !knownIds.has(item.id));
+    const addedIds = new Set(added.map((item) => item.id));
+    imports.filter((item) => !addedIds.has(item.id)).forEach((item) => URL.revokeObjectURL(item.url));
+    objectUrls.current = [
+      ...objectUrls.current.filter((url) => !replaced.some((item) => item.url === url)),
+      ...added.map((item) => item.url),
+    ];
+    updateVideos(() => [...retained, ...added]);
+    replaced.forEach((item) => URL.revokeObjectURL(item.url));
     const restoredFolder = getPlayerPreference('giplayer-last-opened-folder', '');
-    if (restoredFolder && imports.some((video) => {
-      const parts = video.relativePath.split('/');
-      if (selectedRoot && parts[0] === selectedRoot) parts.shift();
-      return parts.slice(0, -1).join('/') === restoredFolder || parts.slice(0, -1).join('/').startsWith(`${restoredFolder}/`);
-    })) {
+    if (restoredFolder && imports.some((video) => directoryFor(video) === restoredFolder || directoryFor(video).startsWith(`${restoredFolder}/`))) {
       setActiveFolder(restoredFolder);
     }
-    previousUrls.forEach(URL.revokeObjectURL);
-    setIsImporting(false);
     const videoImports = imports.filter((item) => item.kind === 'video');
-    const skipped = picked.length - imports.length;
+    const skipped = picked.filter(({ file }) => !isMediaFile(file)).length;
     setNotice(imports.length
-      ? `${videoImports.length} videos and ${imports.length - videoImports.length} audio files found${skipped ? ` · ${skipped} unsupported files skipped` : ''}${inaccessible ? ` · ${inaccessible} items could not be read` : ''}. Thumbnails are loading in the background.`
+      ? `${videoImports.length} videos and ${imports.length - videoImports.length} audio files found${skipped ? ` · ${skipped} unsupported files skipped` : ''}${hiddenCount ? ` · ${hiddenCount} encrypted private files hidden` : ''}${inaccessible ? ` · ${inaccessible} items could not be read` : ''}. Thumbnails are loading in the background.`
       : inaccessible
-        ? `No media files could be read from this folder (${inaccessible} inaccessible items). Check the folder permission and try again.`
-        : 'No supported video or audio files were found. Try selecting individual files or a different folder.');
+        ? `No media files could be read (${inaccessible} inaccessible items). Check folder permission and try again.`
+        : hiddenCount ? `${hiddenCount} encrypted private files remain hidden. No public media was found.` : 'No supported video or audio files were found. Try selecting individual files or a different folder.');
     const thumbnailResults = new Map<string, Pick<VideoFile, 'thumbnail' | 'duration' | 'width' | 'height'>>();
     let nextIndex = 0;
     const workers = Array.from({ length: Math.min(4, videoImports.length) }, async () => {
@@ -226,11 +297,18 @@ export const VideoLibrary = ({
     });
     await Promise.all(workers);
     if (generation === importGenerationRef.current && thumbnailResults.size) {
-      setVideos((current) => current.map((item) => {
+      updateVideos((current) => current.map((item) => {
         const metadata = thumbnailResults.get(item.id);
         return metadata ? { ...item, ...metadata } : item;
       }));
     }
+    if (generation === importGenerationRef.current) setIsImporting(false);
+  };
+
+  const scanDirectory = async (directory: SavedDirectory, replace = false) => {
+    const scan = await readDirectory(directory.handle);
+    const picked = scan.files.map((file) => ({ ...file, sourceId: directory.id }));
+    await importFiles(picked, scan.inaccessible, replace && scan.inaccessible === 0, directory.id);
   };
 
   const importFolder = async () => {
@@ -240,16 +318,17 @@ export const VideoLibrary = ({
     if (window.isSecureContext && directoryWindow.showDirectoryPicker) {
       try {
         const handle = await directoryWindow.showDirectoryPicker();
-        directoryHandleRef.current = handle;
         setRememberedDirectoryName(handle.name);
         setNeedsDirectoryPermission(false);
         if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
-        const remembered = await playerLibrary.saveDirectoryHandle(handle);
-        setIsImporting(true);
-        const scan = await readDirectory(handle);
-        await importFiles(scan.files, scan.inaccessible, handle.name);
-        if (!remembered) {
-          setNotice('Folder loaded. This browser cannot remember folder access, so select it again after reload.');
+        const saved = await playerLibrary.saveDirectoryHandle(handle);
+        if (saved) {
+          setSavedDirectories((current) => [...current.filter((item) => item.id !== saved.id), saved]);
+          await scanDirectory(saved);
+        } else {
+          const scan = await readDirectory(handle);
+          await importFiles(scan.files, scan.inaccessible);
+          setNotice('Folder scanned. This browser could not save its access handle, so you may need to select it again later.');
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -265,59 +344,80 @@ export const VideoLibrary = ({
     }
   };
 
-  const restoreRememberedFolder = async () => {
+  const restoreRememberedFolder = async (directory: SavedDirectory) => {
     try {
-      const handle = directoryHandleRef.current ?? await playerLibrary.getDirectoryHandle();
-      if (!handle) {
-        setNotice('No remembered folder is available. Choose a folder to start your library.');
-        await importFolder();
-        return;
-      }
-      directoryHandleRef.current = handle;
-      setRememberedDirectoryName(handle.name);
-      let permission = await handle.queryPermission?.({ mode: 'read' });
-      if (permission !== 'granted') permission = await handle.requestPermission?.({ mode: 'read' });
+      let permission = await directory.handle.queryPermission?.({ mode: 'read' });
+      if (permission !== 'granted') permission = await directory.handle.requestPermission?.({ mode: 'read' });
       if (permission !== 'granted') {
-        setNeedsDirectoryPermission(true);
-        setNotice(`Allow folder access in your browser to scan ${handle.name}.`);
+        setNotice(`Chrome did not grant access to ${directory.name}. Select that folder again to restore access.`);
         return;
       }
-      setNeedsDirectoryPermission(false);
-      setIsImporting(true);
-      const scan = await readDirectory(handle);
-      await importFiles(scan.files, scan.inaccessible, handle.name);
+      const remainingPermissions = pendingDirectoryIds.filter((id) => id !== directory.id);
+      setPendingDirectoryIds(remainingPermissions);
+      setNeedsDirectoryPermission(remainingPermissions.length > 0);
+      await scanDirectory(directory, true);
     } catch (error) {
-      console.error('Could not scan the remembered folder.', error);
-      setNotice('Could not read the remembered folder. Check its browser permission or choose it again.');
-    } finally {
-      setIsImporting(false);
+      console.error(`Could not scan the saved folder ${directory.name}.`, error);
+      setNotice(`Could not read ${directory.name}. Check folder permission or select it again.`);
     }
+  };
+
+  const forgetDirectory = async (directory: SavedDirectory) => {
+    if (!await playerLibrary.removeDirectoryHandle(directory.id)) {
+      setNotice(`Could not forget ${directory.name}. The saved folder entry is still in browser storage.`);
+      return;
+    }
+    const remaining = savedDirectories.filter((item) => item.id !== directory.id);
+    const pending = pendingDirectoryIds.filter((id) => id !== directory.id);
+    setSavedDirectories(remaining);
+    setPendingDirectoryIds(pending);
+    setNeedsDirectoryPermission(pending.length > 0);
+    setRememberedDirectoryName((current) => current === directory.name ? remaining[0]?.name ?? '' : current);
+    if (activeFolder?.startsWith(`${directory.id}/`)) {
+      setActiveFolder(null);
+      setPlayerPreference('giplayer-last-opened-folder', '');
+    }
+    updateVideos((current) => {
+      const removed = current.filter((video) => video.sourceId === directory.id);
+      removed.forEach((video) => URL.revokeObjectURL(video.url));
+      objectUrls.current = objectUrls.current.filter((url) => !removed.some((video) => video.url === url));
+      return current.filter((video) => video.sourceId !== directory.id);
+    });
   };
 
   useEffect(() => {
     let active = true;
     void (async () => {
-      const handle = await playerLibrary.getDirectoryHandle();
-      if (!active || !handle) {
+      const directories = await playerLibrary.getDirectoryHandles();
+      if (!active || !directories.length) {
         if (active) setIsCheckingLibrary(false);
         return;
       }
-      directoryHandleRef.current = handle;
-      setRememberedDirectoryName(handle.name);
+      setSavedDirectories(directories);
+      setRememberedDirectoryName(directories[0].name);
       try {
-        if (await handle.queryPermission?.({ mode: 'read' }) === 'granted') {
-          setIsImporting(true);
-          const scan = await readDirectory(handle);
-          if (active && directoryHandleRef.current === handle) await importFiles(scan.files, scan.inaccessible, handle.name);
-        } else if (active) {
-          setNeedsDirectoryPermission(true);
-          setNotice('A folder was remembered. Tap Restore folder access to let GIPlayer scan it again.');
+        if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
+        const granted: SavedDirectory[] = [];
+        const pending: string[] = [];
+        for (const directory of directories) {
+          if (await directory.handle.queryPermission?.({ mode: 'read' }) === 'granted') granted.push(directory);
+          else pending.push(directory.id);
+        }
+        if (active) {
+          setPendingDirectoryIds(pending);
+          setNeedsDirectoryPermission(pending.length > 0);
+          for (const directory of granted) {
+            setIsImporting(true);
+            await scanDirectory(directory);
+            if (!active) return;
+          }
+          if (pending.length) setNotice(`${pending.length} saved folder${pending.length === 1 ? '' : 's'} need access. Restore access individually below.`);
         }
       } catch (error) {
         console.error('Could not automatically scan the remembered folder.', error);
         if (active) {
           setNeedsDirectoryPermission(true);
-          setNotice('Could not automatically scan the remembered folder. Tap Restore folder access to retry.');
+          setNotice('Could not automatically scan saved folders. Restore folder access or choose folders again.');
         }
       } finally {
         if (active) setIsImporting(false);
@@ -329,33 +429,34 @@ export const VideoLibrary = ({
 
   const handleFallbackImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
-    directoryHandleRef.current = null;
+    setPendingDirectoryIds([]);
     setNeedsDirectoryPermission(false);
-    await playerLibrary.clearDirectoryHandle();
     const picked = files.map((file) => ({
       file,
       path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }));
-    const pathSegments = picked.map(({ path }) => path.split('/'));
-    const firstDirectory = pathSegments[0]?.[0] ?? '';
-    const selectedRoot = pathSegments.length > 0
-      && pathSegments.every((parts) => parts.length > 1 && parts[0] === firstDirectory)
-      ? firstDirectory
-      : '';
-    setRememberedDirectoryName(selectedRoot);
-    await importFiles(picked, 0, selectedRoot);
+    await importFiles(picked);
     event.target.value = '';
   };
 
   const matchingVideos = (items: VideoFile[]) => items
     .filter((video) => video.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-    .sort((a, b) => sort === 'date' ? b.lastModified - a.lastModified
+    .sort((a, b) => (sort === 'date' || quickView === 'recent') ? b.lastModified - a.lastModified
       : sort === 'size' ? b.file.size - a.file.size : a.name.localeCompare(b.name));
   const currentFolder = folderNodes.find((folder) => folder.path === activeFolder);
   const directFolderVideos = videos.filter((video) => video.kind === 'video' && directoryFor(video) === (activeFolder ?? ''));
   const listedVideos = quickView === 'music'
     ? videos.filter((video) => video.kind === 'audio')
-    : activeFolder ? directFolderVideos : videos.filter((video) => directoryFor(video) === '');
+    : quickView === 'favorites'
+      ? videos.filter((video) => favorites.has(video.id))
+      : quickView === 'recent'
+        ? videos.filter((video) => video.kind === 'video').sort((a, b) => b.lastModified - a.lastModified)
+        : quickView === 'continue'
+            ? videos.filter((video) => {
+              const position = Number(getPlayerPreference(`giplayer-playback:${video.id}`, '0'));
+              return video.kind === 'video' && position > 5 && (!video.duration || position < video.duration - 5);
+            })
+          : activeFolder ? directFolderVideos : videos.filter((video) => directoryFor(video) === '');
   const listMode = !grid;
 
   const shareVideo = async (video: VideoFile) => {
@@ -369,6 +470,111 @@ export const VideoLibrary = ({
       if (error instanceof DOMException && error.name === 'AbortError') return;
       setNotice('The browser could not share this local file.');
     }
+  };
+
+  const toggleFavorite = (video: VideoFile) => {
+    const updated = new Set(favorites);
+    if (updated.has(video.id)) updated.delete(video.id);
+    else updated.add(video.id);
+    setFavorites(updated);
+    playerLibrary.saveFavorites(Array.from(updated));
+  };
+
+  const playVideo = (video: VideoFile) => {
+    const scope = activeFolder && currentFolder ? currentFolder.videos : listedVideos;
+    onSelect(video, matchingVideos(scope), videos.filter((item) => item.kind === 'video'));
+  };
+
+  const hideVaultItems = async (ids: string[]) => {
+    const requestedIds = new Set(ids);
+    const toHide: VideoFile[] = [];
+    for (const video of videos) {
+      if (!requestedIds.has(video.id)) continue;
+      toHide.push(video);
+    }
+    if (!toHide.length) return;
+    const updatedPlaylists = playerLibrary.removeMediaReferences(toHide.map((video) => video.id));
+    setPlaylists(updatedPlaylists);
+    setFavorites(new Set(playerLibrary.getFavorites()));
+    updateVideos((current) => current.filter((video) => !requestedIds.has(video.id)));
+    toHide.forEach((video) => URL.revokeObjectURL(video.url));
+    objectUrls.current = objectUrls.current.filter((url) => !toHide.some((video) => video.url === url));
+    setNotice(`${toHide.length} encrypted file${toHide.length === 1 ? '' : 's'} hidden from the library.`);
+  };
+
+  const unhideVaultItem = async (media: DecryptedVaultMedia) => {
+    const directory = savedDirectories.find((item) => item.id === media.sourceId);
+    if (!directory) {
+      setNotice('The encrypted copy was deleted. Re-select the original file or folder to add it back to the library.');
+      return;
+    }
+    try {
+      if (await directory.handle.queryPermission?.({ mode: 'read' }) !== 'granted') {
+        setNotice('The encrypted copy was deleted. Restore the source folder permission to show its files again.');
+        return;
+      }
+      await scanDirectory(directory, true);
+      setNotice('The encrypted copy was deleted. Source files are visible again in the scanned folder.');
+    } catch (error) {
+      console.error(`Could not restore ${media.name} to the public library.`, error);
+      setNotice(`The encrypted copy was deleted. Could not scan ${directory.name}; restore its access or choose the folder again.`);
+    }
+  };
+
+  const playVaultItem = (media: DecryptedVaultMedia, file: File) => {
+    const url = URL.createObjectURL(file);
+    objectUrls.current.push(url);
+    const video: VideoFile = {
+      id: media.id,
+      file,
+      url,
+      name: media.name,
+      relativePath: media.sourcePath,
+      lastModified: media.lastModified,
+      kind: isMediaFile(file) ?? 'video',
+      privateVault: true,
+    };
+    onSelect(video, [video], videos.filter((item) => item.kind === 'video'));
+  };
+
+  const handleProfileAvatar = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const image = new Image();
+    const source = URL.createObjectURL(file);
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 320 / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(source);
+        setNotice('Could not process that profile picture in this browser.');
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const avatar = canvas.toDataURL('image/jpeg', 0.8);
+      setProfileDraft((current) => ({ ...current, avatar }));
+      URL.revokeObjectURL(source);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(source);
+      setNotice('Could not load that profile picture. Choose a valid image.');
+    };
+    image.src = source;
+    event.target.value = '';
+  };
+
+  const saveProfile = () => {
+    const saved = { ...profileDraft, displayName: profileDraft.displayName.trim(), email: profileDraft.email.trim() };
+    if (!playerLibrary.saveProfile(saved)) {
+      setNotice('Could not save your local profile. Check browser storage availability.');
+      return;
+    }
+    setProfile(saved);
+    setProfileDraft(saved);
+    setNotice('Local profile saved on this device. No account or cloud sign-in was created.');
   };
 
   const addFolderToPlaylist = (folder: FolderEntry) => {
@@ -414,13 +620,17 @@ export const VideoLibrary = ({
     setPlayerPreference('giplayer-last-opened-folder', folder.path);
   };
   const goBack = () => {
+    if (quickView) {
+      setQuickView(null);
+      setRequestedVaultVideos([]);
+      setPlaylistSelection(null);
+      return;
+    }
     if (activeFolder) {
       const parent = activeFolder.split('/').slice(0, -1).join('/');
       setActiveFolder(parent || null);
       return;
     }
-    setQuickView(null);
-    setPlaylistSelection(null);
   };
 
   const header = (
@@ -434,14 +644,23 @@ export const VideoLibrary = ({
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-md shadow-sky-950/30"><Play className="h-4 w-4 fill-current text-slate-950" /></span>
             <span className="min-w-0">
               <span className="block text-[10px] font-bold uppercase tracking-[.22em] text-sky-300">GIPlayer</span>
-              <h1 className="truncate text-sm font-bold text-white sm:text-lg">{playlistSelection?.name ?? currentFolder?.name ?? (quickView === 'music' ? 'Music' : quickView === 'playlists' ? 'Video Playlists' : quickView === 'share' ? 'GIPlayer Share' : quickView === 'privacy' ? 'Privacy' : quickView === 'stream' ? 'Network Stream' : 'Folders')}</h1>
+              <h1 className="truncate text-sm font-bold text-white sm:text-lg">{playlistSelection?.name ?? currentFolder?.name ?? (quickView ? ({
+                music: 'Music', playlists: 'Video Playlists', share: 'GIPlayer Share', privacy: 'Privacy Vault',
+                stream: 'Network Stream', folders: 'Folder access', profile: 'Local profile',
+                favorites: 'Favorites', recent: 'Recently Added', continue: 'Continue Watching', settings: 'Player Settings',
+              } as Record<NonNullable<PlaylistView>, string>)[quickView] : 'Folders')}</h1>
             </span>
           </div>
         </div>
         <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label="Search"><Search className="h-5 w-5" /></button>
         <button onClick={() => setGrid((value) => !value)} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
-        {needsDirectoryPermission && <button onClick={() => void restoreRememberedFolder()} className="shrink-0 rounded-full bg-sky-500/15 px-3 py-2 text-xs font-semibold text-sky-300" title={`Restore access to ${rememberedDirectoryName}`} aria-label="Restore remembered folder access">Restore folder</button>}
-        {rememberedDirectoryName && !needsDirectoryPermission && <button onClick={() => void restoreRememberedFolder()} disabled={isImporting} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10 disabled:opacity-50" title={`Scan ${rememberedDirectoryName} again`} aria-label="Scan selected folder again"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
+        {savedDirectories.length > 0 && <button onClick={() => setQuickView('folders')} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${needsDirectoryPermission ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-slate-300'}`} aria-label="Manage saved folder access">{needsDirectoryPermission ? 'Restore folders' : `${savedDirectories.length} folders`}</button>}
+        {savedDirectories.length > 0 && <button onClick={() => {
+          for (const directory of savedDirectories) void scanDirectory(directory, true).catch((error) => {
+            console.error(`Could not rescan ${directory.name}.`, error);
+            setNotice(`Could not rescan ${directory.name}. Restore its access first.`);
+          });
+        }} disabled={isImporting} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10 disabled:opacity-50" title="Rescan saved folders" aria-label="Rescan saved folders"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
         <button onClick={() => void importFolder()} className="shrink-0 rounded-full p-2 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" aria-label="Choose local folder" title="Choose local folder" disabled={isImporting}><FolderOpen className="h-5 w-5" /></button>
       </div>
       {searchOpen && (
@@ -453,10 +672,15 @@ export const VideoLibrary = ({
         <nav className="scrollbar-none mx-auto mt-3 flex max-w-6xl gap-2 overflow-x-auto pb-1">
           {[
             { label: 'Music', icon: <Music2 />, action: () => { setQuickView('music'); setActiveFolder(null); } },
-            { label: 'Privacy', icon: <LockKeyhole />, action: () => setQuickView('privacy') },
+            { label: 'Privacy Vault', icon: <LockKeyhole />, action: () => { setRequestedVaultVideos([]); setQuickView('privacy'); } },
             { label: 'GIPlayer Share', icon: <Share2 />, action: () => setQuickView('share') },
             { label: 'Video Playlists', icon: <List />, action: () => setQuickView('playlists') },
             { label: 'Network Stream', icon: <Globe2 />, action: () => setQuickView('stream') },
+            { label: 'Recently Added', icon: <RefreshCw />, action: () => setQuickView('recent') },
+            { label: 'Continue Watching', icon: <Clock3 />, action: () => setQuickView('continue') },
+            { label: 'Favorites', icon: <Heart />, action: () => setQuickView('favorites') },
+            { label: profile.displayName || 'Profile', icon: <UserRound />, action: () => { setProfileDraft(profile); setQuickView('profile'); } },
+            { label: 'Settings', icon: <Settings2 />, action: () => setQuickView('settings') },
           ].map((item) => <button key={item.label} onClick={item.action} className="flex shrink-0 items-center gap-2 rounded-full border border-white/5 bg-[#202d38] px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-sky-400/20 hover:bg-[#2b3a47]">{item.icon}<span>{item.label}</span></button>)}
         </nav>
       )}
@@ -467,14 +691,15 @@ export const VideoLibrary = ({
 
   const videoCard = (video: VideoFile) => (
     <article key={video.id} className={`group relative overflow-hidden rounded-2xl border border-white/5 bg-[#1a252f] ${listMode ? 'flex items-center gap-4 p-3' : ''}`}>
-      <button onClick={() => onSelect(video, matchingVideos(activeFolder && currentFolder ? currentFolder.videos : videos.filter((item) => item.kind === video.kind)), videos.filter((item) => item.kind === 'video'))} className={`relative block overflow-hidden text-left ${listMode ? 'h-20 w-32 shrink-0 rounded-xl' : 'aspect-video w-full'}`} aria-label={`Play ${video.name}`}>
+      <button onClick={() => playVideo(video)} className={`relative block overflow-hidden text-left ${listMode ? 'h-20 w-32 shrink-0 rounded-xl' : 'aspect-video w-full'}`} aria-label={`Play ${video.name}`}>
         {video.thumbnail ? <img src={video.thumbnail} alt="" className="h-full w-full object-cover transition group-hover:scale-105" /> : <div className="flex h-full w-full items-center justify-center bg-[#283541]">{video.kind === 'audio' ? <Music2 className="h-8 w-8 text-slate-500" /> : <Video className="h-8 w-8 text-slate-500" />}</div>}
         <span className="absolute bottom-2 right-2 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">{formatDuration(video.duration ?? Number.NaN)}</span>
       </button>
       <div className={`min-w-0 flex-1 ${listMode ? 'py-1 pr-1' : 'p-3'}`}>
-        <button onClick={() => onSelect(video, matchingVideos(activeFolder && currentFolder ? currentFolder.videos : videos.filter((item) => item.kind === video.kind)), videos.filter((item) => item.kind === 'video'))} className="block w-full truncate text-left text-sm font-semibold text-slate-100">{video.name}</button>
+        <button onClick={() => playVideo(video)} className="block w-full truncate text-left text-sm font-semibold text-slate-100">{video.name}</button>
         <p className="mt-1 text-xs text-slate-400">{formatBytes(video.file.size)} · {new Date(video.lastModified).toLocaleDateString()}</p>
       </div>
+      {video.kind === 'video' && <button onClick={() => toggleFavorite(video)} className={`rounded-full p-2 hover:bg-white/10 ${favorites.has(video.id) ? 'text-rose-300' : 'text-slate-400'} ${listMode ? '' : 'absolute right-11 top-2 bg-black/50'}`} aria-label={`${favorites.has(video.id) ? 'Remove' : 'Add'} ${video.name} ${favorites.has(video.id) ? 'from' : 'to'} favorites`}><Heart className={`h-4 w-4 ${favorites.has(video.id) ? 'fill-current' : ''}`} /></button>}
       <button onClick={() => void shareVideo(video)} className={`rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300 ${listMode ? 'mr-2' : 'absolute right-2 top-2 bg-black/50'}`} aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button>
     </article>
   );
@@ -492,19 +717,68 @@ export const VideoLibrary = ({
         </span>
         <ChevronRight className="h-5 w-5 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-sky-300" />
       </button>
+      <button onClick={() => { setRequestedVaultVideos(folder.videos); setQuickView('privacy'); }} className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300" title="Encrypt folder videos into Privacy Vault" aria-label={`Lock ${folder.name} videos`}><LockKeyhole className="h-4 w-4" /></button>
       <button onClick={() => addFolderToPlaylist(folder)} className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300" title="Add folder videos to playlist" aria-label={`Add ${folder.name} to playlist`}><Plus className="h-4 w-4" /></button>
     </article>
   );
 
   const mainContent = () => {
-    if (quickView === 'privacy') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Shield className="mb-4 h-9 w-9 text-sky-400" /><h2 className="text-lg font-bold">Your files stay in your browser</h2><p className="mt-2 text-sm leading-6 text-slate-300">GIPlayer can read only files and folders you explicitly choose. Browsers do not grant websites unrestricted access to Android or desktop storage. GIPlayer saves your selected folder handle and requests persistent site storage where supported, then scans it automatically while Chrome keeps read permission. If Chrome resets folder permission, tap Restore folder once to grant it again; web apps cannot override Chrome’s permission policy. Selected file data stays in memory for this tab, while playback positions and playlists are stored locally.</p></section>;
+    if (quickView === 'folders') return (
+      <section className="mx-auto mt-8 max-w-3xl space-y-3">
+        <div className="rounded-2xl bg-[#1a252f] p-5">
+          <h2 className="text-lg font-bold">Saved folders</h2>
+          <p className="mt-1 text-sm text-slate-400">GIPlayer scans saved folders automatically when Chrome keeps access. Restore only asks for access to a folder that needs it.</p>
+        </div>
+        {savedDirectories.map((directory) => {
+          const needsAccess = pendingDirectoryIds.includes(directory.id);
+          return <article key={directory.id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#1a252f] p-4">
+            <FolderOpen className={`h-6 w-6 shrink-0 ${needsAccess ? 'text-amber-300' : 'text-sky-300'}`} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{directory.name}</p>
+              <p className="text-xs text-slate-400">{needsAccess ? 'Access needs restoring' : 'Saved for automatic scanning'}</p>
+            </div>
+            <button onClick={() => void restoreRememberedFolder(directory)} disabled={isImporting} className="rounded-xl bg-sky-500/15 px-3 py-2 text-sm font-semibold text-sky-200 disabled:opacity-50">{needsAccess ? 'Restore' : 'Rescan'}</button>
+            <button onClick={() => void forgetDirectory(directory)} aria-label={`Forget ${directory.name}`} className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-rose-300"><X className="h-4 w-4" /></button>
+          </article>;
+        })}
+        <button onClick={() => void importFolder()} className="w-full rounded-xl border border-dashed border-white/15 py-3 text-sm font-semibold text-slate-200 hover:border-sky-300/50">+ Add another folder</button>
+      </section>
+    );
+    if (quickView === 'privacy') return <PrivacyVault
+      videos={videos.filter((video) => video.kind === 'video')}
+      requestedVideos={requestedVaultVideos}
+      onHideMedia={hideVaultItems}
+      onUnhideMedia={(media) => void unhideVaultItem(media)}
+      onVaultRequestComplete={() => setRequestedVaultVideos([])}
+      onLock={onVaultLock}
+      onPlay={playVaultItem}
+    />;
     if (quickView === 'share') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Share2 className="mb-4 h-9 w-9 text-sky-400" /><h2 className="text-lg font-bold">Share a selected file</h2><p className="mt-2 text-sm leading-6 text-slate-300">Use your device share sheet on an imported item. If the browser cannot share files, GIPlayer will explain that a private local file cannot be shared as a public link.</p>{videos.length ? <div className="mt-5 grid gap-2">{videos.map((video) => <div key={video.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3"><span className="truncate pr-3 text-sm">{video.name}</span><button onClick={() => void shareVideo(video)} className="rounded-full bg-sky-500/15 p-2 text-sky-300" aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button></div>)}</div> : <p className="mt-5 text-sm text-slate-400">Choose a folder first to browse your files.</p>}</section>;
     if (quickView === 'stream') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Globe2 className="mb-4 h-9 w-9 text-sky-400" /><h2 className="mb-4 text-lg font-bold">Play a network stream</h2><NetworkStreamDialog onPlay={onOpenStream} /></section>;
+    if (quickView === 'profile') return (
+      <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6 sm:p-8">
+        <div className="mb-6 flex items-center gap-4">{profileDraft.avatar ? <img src={profileDraft.avatar} alt="Local profile" className="h-16 w-16 rounded-full object-cover" /> : <span className="flex h-16 w-16 items-center justify-center rounded-full bg-sky-400/10"><UserRound className="h-8 w-8 text-sky-300" /></span>}<div><h2 className="text-lg font-bold">{profile.displayName || 'Local profile'}</h2><p className="text-sm text-slate-400">Stored on this device only</p></div></div>
+        <form onSubmit={(event) => { event.preventDefault(); saveProfile(); }} className="space-y-4">
+          <label className="block text-sm">Display name<input value={profileDraft.displayName} onChange={(event) => setProfileDraft((current) => ({ ...current, displayName: event.target.value }))} maxLength={60} className="mt-2 w-full rounded-xl bg-black/20 px-4 py-3" placeholder="Your name" /></label>
+          <label className="block text-sm">Email (optional)<input type="email" value={profileDraft.email} onChange={(event) => setProfileDraft((current) => ({ ...current, email: event.target.value }))} maxLength={120} className="mt-2 w-full rounded-xl bg-black/20 px-4 py-3" placeholder="name@example.com" /></label>
+          <label className="block text-sm">Profile picture<input type="file" accept="image/*" onChange={handleProfileAvatar} className="mt-2 block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-white" /></label>
+          {profileDraft.avatar && <button type="button" onClick={() => setProfileDraft((current) => ({ ...current, avatar: '' }))} className="text-sm text-rose-300">Remove picture</button>}
+          <div className="rounded-xl bg-black/15 p-4 text-sm leading-6 text-slate-400">This is a local profile for organizing your player experience, not an online account. No login, identity verification, or cloud sync is provided.</div>
+          <button className="rounded-xl bg-sky-500 px-5 py-3 font-semibold text-slate-950">Save local profile</button>
+        </form>
+      </section>
+    );
+    if (quickView === 'settings') return <section className="mx-auto mt-8 max-w-2xl space-y-3 rounded-3xl border border-white/5 bg-[#1a252f] p-6">
+      <h2 className="text-lg font-bold">Player preferences</h2>
+      <label className="flex items-center justify-between rounded-xl bg-black/15 p-4 text-sm"><span>Video Display</span><input type="checkbox" checked={displayEnabled} onChange={(event) => { setDisplayEnabled(event.target.checked); setPlayerPreference('giplayer-video-display', String(event.target.checked)); }} className="h-5 w-5 accent-sky-400" /></label>
+      <label className="flex items-center justify-between rounded-xl bg-black/15 p-4 text-sm"><span>Keyboard Shortcuts</span><input type="checkbox" checked={shortcutsEnabled} onChange={(event) => { setShortcutsEnabled(event.target.checked); setPlayerPreference('giplayer-shortcuts', String(event.target.checked)); }} className="h-5 w-5 accent-sky-400" /></label>
+      <p className="text-xs leading-5 text-slate-500">These settings are saved on this browser and also apply to the player.</p>
+    </section>;
     if (quickView === 'playlists') return (
       <section className="mx-auto mt-6 max-w-4xl">
         <form onSubmit={(event) => { event.preventDefault(); createPlaylist(); }} className="mb-5 flex gap-2"><input value={playlistName} onChange={(event) => setPlaylistName(event.target.value)} placeholder="New playlist name" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#1a252f] px-4 py-3 outline-none focus:border-sky-400" /><button className="rounded-xl bg-sky-500 px-4 font-semibold text-slate-950"><Plus className="inline h-4 w-4" /> Create</button></form>
         <div className="space-y-3">{playlists.map((playlist) => <div key={playlist.id} className="rounded-2xl border border-white/5 bg-[#1a252f] p-4">
-          <div className="flex items-center gap-2"><button onClick={() => setPlaylistSelection(playlistSelection?.id === playlist.id ? null : playlist)} className="min-w-0 flex-1 text-left"><strong className="block truncate">{playlist.name}</strong><span className="text-xs text-slate-400">{playlist.videoIds.length} saved videos</span></button><button onClick={() => { const name = window.prompt('Rename playlist', playlist.name)?.trim(); if (name) savePlaylists(playlists.map((item) => item.id === playlist.id ? { ...item, name } : item)); }} className="rounded-lg p-2 text-slate-400 hover:bg-white/10" aria-label={`Rename ${playlist.name}`}>Rename</button><button onClick={() => { if (window.confirm(`Delete “${playlist.name}”?`)) { savePlaylists(playlists.filter((item) => item.id !== playlist.id)); if (playlistSelection?.id === playlist.id) setPlaylistSelection(null); } }} className="rounded-lg p-2 text-rose-300 hover:bg-white/10" aria-label={`Delete ${playlist.name}`}><Trash2 className="h-4 w-4" /></button>
+          <div className="flex items-center gap-2"><button onClick={() => setPlaylistSelection(playlistSelection?.id === playlist.id ? null : playlist)} className="min-w-0 flex-1 text-left"><strong className="block truncate">{playlist.name}</strong><span className="text-xs text-slate-400">{playlist.videoIds.length} saved videos</span></button><button onClick={() => { const name = window.prompt('Rename playlist', playlist.name)?.trim(); if (name && playlists.some((item) => item.id !== playlist.id && item.name.toLowerCase() === name.toLowerCase())) setNotice('A playlist with that name already exists.'); else if (name) savePlaylists(playlists.map((item) => item.id === playlist.id ? { ...item, name } : item)); }} className="rounded-lg p-2 text-slate-400 hover:bg-white/10" aria-label={`Rename ${playlist.name}`}>Rename</button><button onClick={() => { if (window.confirm(`Delete “${playlist.name}”?`)) { savePlaylists(playlists.filter((item) => item.id !== playlist.id)); if (playlistSelection?.id === playlist.id) setPlaylistSelection(null); } }} className="rounded-lg p-2 text-rose-300 hover:bg-white/10" aria-label={`Delete ${playlist.name}`}><Trash2 className="h-4 w-4" /></button>
             <button onClick={() => { const queue = playlist.videoIds.map((id) => videos.find((video) => video.id === id)).filter((video): video is VideoFile => Boolean(video)); if (queue.length) onSelect(queue[0], queue, videos.filter((video) => video.kind === 'video')); else setNotice('Re-select the source folder to play files in this playlist.'); }} className="rounded-full bg-sky-500 p-2.5 text-slate-950" aria-label={`Play ${playlist.name}`}><Play className="h-4 w-4 fill-current" /></button>
           </div>
           {playlistSelection?.id === playlist.id && <div className="mt-4 border-t border-white/5 pt-4"><p className="mb-2 text-xs text-slate-400">Add or remove videos currently selected in this tab</p>{videos.filter((video) => video.kind === 'video').map((video) => <button key={video.id} onClick={() => togglePlaylistVideo(playlist, video)} className="flex w-full items-center gap-3 border-b border-white/5 py-2 text-left"><span className="min-w-0 flex-1 truncate text-sm">{video.name}</span>{playlist.videoIds.includes(video.id) ? <Check className="h-4 w-4 text-sky-300" /> : <Plus className="h-4 w-4 text-slate-400" />}</button>)}</div>}
@@ -512,9 +786,9 @@ export const VideoLibrary = ({
       </section>
     );
 
-    if (quickView === 'music') {
+    if (['music', 'favorites', 'recent', 'continue'].includes(quickView ?? '')) {
       const items = matchingVideos(listedVideos);
-      return <section className="mx-auto mt-5 max-w-6xl"><div className="mb-4 flex flex-col items-start gap-3 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-between"><p className="text-sm text-slate-400">{items.length} {quickView === 'music' ? 'audio tracks' : 'videos'}</p><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg bg-[#1a252f] px-3 py-2 text-sm"><option value="name">Name</option><option value="date">Date added</option><option value="size">File size</option></select></div><div className={grid ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4' : 'space-y-2'}>{items.map(videoCard)}</div>{items.length === 0 && <p className="rounded-2xl bg-[#1a252f] p-8 text-center text-slate-400">No matching media in this folder.</p>}<button onClick={() => items[0] && onSelect(items[0], items, videos.filter((video) => video.kind === 'video'))} disabled={!items.length} className="fixed bottom-6 right-5 z-10 rounded-full bg-sky-500 p-5 text-slate-950 shadow-xl shadow-sky-950/30 disabled:opacity-40" aria-label="Play all"><Play className="h-7 w-7 fill-current" /></button></section>;
+      return <section className="mx-auto mt-5 max-w-6xl"><div className="mb-4 flex flex-col items-start gap-3 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-between"><p className="text-sm text-slate-400">{items.length} {quickView === 'music' ? 'audio tracks' : 'videos'}</p><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg bg-[#1a252f] px-3 py-2 text-sm"><option value="name">Name</option><option value="date">Recently added</option><option value="size">File size</option></select></div><div className={grid ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4' : 'space-y-2'}>{items.map(videoCard)}</div>{items.length === 0 && <p className="rounded-2xl bg-[#1a252f] p-8 text-center text-slate-400">Nothing here yet.</p>}<button onClick={() => items[0] && onSelect(items[0], items, videos.filter((video) => video.kind === 'video'))} disabled={!items.length} className="fixed bottom-6 right-5 z-10 rounded-full bg-sky-500 p-5 text-slate-950 shadow-xl shadow-sky-950/30 disabled:opacity-40" aria-label="Play all"><Play className="h-7 w-7 fill-current" /></button></section>;
     }
 
     const filteredFolders = folders.filter((folder) => `${folder.name} ${folder.path}`.toLowerCase().includes(search.trim().toLowerCase()));
@@ -536,7 +810,10 @@ export const VideoLibrary = ({
         {!isCheckingLibrary && !isImporting && (
           <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
             {supportsDirectoryAccess
-              ? <button onClick={() => void (needsDirectoryPermission ? restoreRememberedFolder() : importFolder())} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />{needsDirectoryPermission ? 'Grant folder access' : 'Choose media folder'}</button>
+              ? <button onClick={() => {
+                if (needsDirectoryPermission) setQuickView('folders');
+                else void importFolder();
+              }} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />{needsDirectoryPermission ? 'Restore folders' : 'Choose media folder'}</button>
               : <button onClick={() => inputRef.current && 'webkitdirectory' in inputRef.current ? inputRef.current.click() : fileInputRef.current?.click()} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />Choose media folder</button>}
             <button onClick={() => fileInputRef.current?.click()} className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10"><Video className="mr-2 inline h-4 w-4" />Select videos and music</button>
           </div>
@@ -553,8 +830,8 @@ export const VideoLibrary = ({
       ? 'Matching videos'
       : activeFolder
         ? 'Videos in this folder'
-        : rootFolderName
-          ? `Videos in ${rootFolderName}`
+        : rememberedDirectoryName
+          ? `Videos in ${rememberedDirectoryName}`
           : 'Selected videos';
     const renderVideoGrid = (items: VideoFile[]) => (
       <div className={grid ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4' : 'space-y-2'}>
@@ -586,7 +863,7 @@ export const VideoLibrary = ({
       <section className="mx-auto mt-5 max-w-6xl">
         <div className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-[#17232d] p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-white">{activeFolder || rootFolderName || 'Your library'}</p>
+            <p className="text-sm font-semibold text-white">{activeFolder || rememberedDirectoryName || 'Your library'}</p>
             <p className="mt-1 text-xs text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos · {folders.length} folders</p>
           </div>
           <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg bg-[#25313c] px-3 py-2 text-sm text-white">

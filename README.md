@@ -59,6 +59,8 @@
 - Imported `File` objects stay in memory for the current tab and thumbnails load in the background so the library appears promptly. On browsers supporting the File System Access API, GIPlayer remembers the selected directory handle in IndexedDB and requests persistent site storage to reduce browser eviction; it automatically rescans on launch while read permission remains granted. Chrome may still expire/revoke folder permission, especially on mobile, and a web app cannot suppress that policy or access the rest of Android storage. If required, the user restores the saved folder permission with one tap; standard file-picker imports cannot be automatically restored. Playback positions, playlists, bookmarks, Video Display, and Shortcuts preferences are stored locally.
 - The library groups videos in a true folder hierarchy: each level shows only its direct subfolders and videos, parent folder cards include descendant video counts, and navigation goes back one level at a time.
 - Browse folder counts, thumbnails, recently added labels, search results, name/date/size sorting, list/grid views, audio files, and playlists. Playlists preserve their order and resolve local files again after the source folder has been selected.
+- The local profile, favorites, Recently Added, Continue Watching, and player preferences are stored in this browser profile. A local profile is not an online account and does not provide sign-in or cloud sync.
+- Privacy Vault encrypts selected video copies in IndexedDB using Web Crypto (PBKDF2-derived PIN/recovery wrapping keys and AES-GCM-encrypted metadata and chunks). Save the one-time recovery code: losing both it and the PIN makes the encrypted copies unrecoverable. Locking does not move, erase, or encrypt the original source file; GIPlayer only hides it from its own public library. Private playback decrypts a selected file into memory, so very large videos may exceed device memory. Browser storage can be cleared or evicted, and the vault is not a substitute for OS-level file protection.
 - The full-screen player includes previous/next playback, seek and time controls, aspect ratios, speed, lock, auto-hiding controls, keyboard shortcuts, double-tap seeking, touch brightness/volume/scrubbing, external SRT/VTT subtitles with sync and styling, bookmarks, sleep timer, repeat, and compatible HLS streams.
 - Browser support varies: embedded audio-track selection and display orientation depend on the browser/device; brightness changes the video image rather than the device's system brightness; keep-awake uses the Screen Wake Lock API when permitted. HLS uses native support or hls.js; DASH playback works only if the browser natively supports the stream. Clip export uses MediaRecorder/captureStream when available and records the selected segment in real time; it never modifies the source file.
 - Sharing uses the native share sheet where supported. Private local paths and blob URLs are never shared or copied as public links. Network playback accepts direct HTTP(S) media URLs only and does not use a proxy.
@@ -160,9 +162,9 @@ npm run preview
 
 ## 🔒 Security & Privacy
 
-- **100% Client-Side Privacy**: Watch history, playback positions, and preferences are stored exclusively on your device.
+- **Local-first data**: Playback positions, playlists, favorites, preferences, local profile, and encrypted vault data are stored in this browser profile; none of those features provides cloud sync.
 - **Zero Third-Party Trackers**: No analytics, telemetry, or tracking scripts.
-- **Safe Local Media**: Files selected from local storage are handled via in-memory `URL.createObjectURL` and never transmitted across the network.
+- **Safe Local Media**: Public library files are read with browser-granted permissions and handled via in-memory URLs. GIPlayer does not upload them; sharing requires an explicit user action. Privacy Vault stores encrypted copies but cannot protect the unchanged original file from access outside GIPlayer.
 - **CORS Compliant**: Strict origin policies and cross-origin handling for subtitles and streams.
 
 ---

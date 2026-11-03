@@ -16,6 +16,7 @@ export type PlayerVideo = {
   height?: number;
   fileSize?: number;
   mimeType?: string;
+  privateVault?: boolean;
 };
 
 type AudioTrack = { id: string; label: string; language?: string; enabled: boolean };
@@ -146,21 +147,21 @@ export function VideoInformation({ video, duration }: { video: PlayerVideo; dura
   return <dl className="space-y-3">{rows.map(([label, value]) => <div key={label} className="flex justify-between gap-4 border-b border-white/5 pb-2"><dt className="text-sm text-slate-400">{label}</dt><dd className="max-w-[65%] break-all text-right text-sm">{value}</dd></div>)}</dl>;
 }
 
-export function BookmarkManager({ videoId, currentTime, onSeek }: { videoId: string; currentTime: number; onSeek: (time: number) => void }) {
-  const [bookmarks, setBookmarks] = useState(() => playerLibrary.getBookmarks(videoId));
+export function BookmarkManager({ videoId, currentTime, onSeek, persist = true }: { videoId: string; currentTime: number; onSeek: (time: number) => void; persist?: boolean }) {
+  const [bookmarks, setBookmarks] = useState(() => persist ? playerLibrary.getBookmarks(videoId) : []);
   const [note, setNote] = useState('');
   const add = () => {
     const next = [...bookmarks, { id: crypto.randomUUID(), time: currentTime, note: note.trim(), createdAt: Date.now() }];
     setBookmarks(next);
-    playerLibrary.saveBookmarks(videoId, next);
+    if (persist) playerLibrary.saveBookmarks(videoId, next);
     setNote('');
   };
   const remove = (id: string) => {
     const next = bookmarks.filter((bookmark) => bookmark.id !== id);
     setBookmarks(next);
-    playerLibrary.saveBookmarks(videoId, next);
+    if (persist) playerLibrary.saveBookmarks(videoId, next);
   };
-  return <div className="space-y-3"><form onSubmit={(event) => { event.preventDefault(); add(); }} className="flex gap-2"><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Note for current time" className="min-w-0 flex-1 rounded-xl bg-white/5 px-3 py-2 text-sm outline-none" /><button className="rounded-xl bg-sky-500 px-3 text-sm font-semibold text-slate-950">Save {formatTime(currentTime)}</button></form>{bookmarks.map((bookmark) => <div key={bookmark.id} className="flex items-center gap-2 rounded-xl bg-white/5 p-3"><button onClick={() => onSeek(bookmark.time)} className="flex min-w-0 flex-1 items-center gap-2 text-left"><Clock3 className="h-4 w-4 shrink-0 text-sky-300" /><span className="font-mono text-sm">{formatTime(bookmark.time)}</span><span className="truncate text-sm text-slate-300">{bookmark.note || 'Bookmark'}</span></button><button onClick={() => remove(bookmark.id)} aria-label="Remove bookmark" className="p-1 text-slate-400 hover:text-rose-300"><Trash2 className="h-4 w-4" /></button></div>)}</div>;
+  return <div className="space-y-3">{!persist && <p className="text-xs text-slate-400">Bookmarks for private playback stay in memory and are cleared when you leave the player.</p>}<form onSubmit={(event) => { event.preventDefault(); add(); }} className="flex gap-2"><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Note for current time" className="min-w-0 flex-1 rounded-xl bg-white/5 px-3 py-2 text-sm outline-none" /><button className="rounded-xl bg-sky-500 px-3 text-sm font-semibold text-slate-950">Save {formatTime(currentTime)}</button></form>{bookmarks.map((bookmark) => <div key={bookmark.id} className="flex items-center gap-2 rounded-xl bg-white/5 p-3"><button onClick={() => onSeek(bookmark.time)} className="flex min-w-0 flex-1 items-center gap-2 text-left"><Clock3 className="h-4 w-4 shrink-0 text-sky-300" /><span className="font-mono text-sm">{formatTime(bookmark.time)}</span><span className="truncate text-sm text-slate-300">{bookmark.note || 'Bookmark'}</span></button><button onClick={() => remove(bookmark.id)} aria-label="Remove bookmark" className="p-1 text-slate-400 hover:text-rose-300"><Trash2 className="h-4 w-4" /></button></div>)}</div>;
 }
 
 export function PlayerSettings({ playbackSpeed, onPlaybackSpeed, repeat, onRepeat, onSleepTimer, shortcutsEnabled, onShortcutsEnabled }: {
@@ -247,12 +248,14 @@ export default function MoreOptionsMenu({
       case 'Subtitle': return <SubtitleSelector enabled={subtitlesEnabled} subtitleName={subtitleName} offset={subtitleOffset} onEnable={onSubtitleEnabled} onLoad={onSubtitleFile} onOffset={onSubtitleOffset} onStyle={onSubtitleStyle} />;
       case 'Aspect Ratio': return <AspectRatioSelector value={aspectRatio} onChange={onAspectRatio} />;
       case 'Display Settings': return <DisplaySettings brightness={brightness} onBrightness={onBrightness} displayEnabled={displayEnabled} onDisplayEnabled={onDisplayEnabled} keepAwake={keepAwake} onKeepAwake={onKeepAwake} />;
-      case 'Playlists': return <PlaylistManager video={video} onPlay={onPlayPlaylist} />;
+      case 'Playlists': return video.privateVault
+        ? <p className="rounded-xl bg-white/5 p-4 text-sm text-slate-300">Private vault videos cannot be added to public playlists. Their names and playlist references stay private.</p>
+        : <PlaylistManager video={video} onPlay={onPlayPlaylist} />;
       case 'Network Stream': return <NetworkStreamDialog onPlay={onOpenNetworkStream} />;
       case 'Information': return <VideoInformation video={video} duration={duration} />;
       case 'Share': return <Section title="Share media"><p className="text-sm text-slate-300">{video.file ? 'Share this selected file using the device share sheet when supported.' : `Stream host: ${info || 'not available'}.`}</p><ActionButton onClick={() => void share()}><Share2 className="mr-2 inline h-4 w-4" />Share</ActionButton><p className="text-xs text-slate-400">Local blob URLs and private file paths are never exposed. If file sharing is unsupported, the browser will show a limitation instead.</p></Section>;
       case 'Cut': return <Section title="Export a clip"><p className="text-sm text-slate-400">Captures the selected playback segment in real time where this browser supports MediaRecorder and video capture. The source file is never edited.</p><div className="grid grid-cols-2 gap-3"><label className="text-xs text-slate-400">Start (seconds)<input type="number" min="0" max={duration} step="0.1" value={cutStart} onChange={(event) => setCutStart(Number(event.target.value))} className="mt-1 w-full rounded-xl bg-white/5 p-2 text-sm text-white" /></label><label className="text-xs text-slate-400">End (seconds)<input type="number" min="0" max={duration} step="0.1" value={cutEnd} onChange={(event) => setCutEnd(Number(event.target.value))} className="mt-1 w-full rounded-xl bg-white/5 p-2 text-sm text-white" /></label></div><div className="flex gap-2"><ActionButton onClick={() => onSeek(cutStart)}>Preview start</ActionButton><ActionButton onClick={() => void handleCut()} disabled={!duration}>Export clip</ActionButton></div>{cutMessage && <p role="status" className="text-sm text-sky-200">{cutMessage}</p>}</Section>;
-      case 'Bookmark': return <BookmarkManager key={video.id} videoId={video.id} currentTime={currentTime} onSeek={onSeek} />;
+      case 'Bookmark': return <BookmarkManager key={video.id} videoId={video.id} currentTime={currentTime} onSeek={onSeek} persist={!video.privateVault} />;
       case 'Tutorial': return <Section title="Player guide"><div className="space-y-3 text-sm leading-6 text-slate-300"><p><b className="text-white">Tap:</b> show or hide controls. <b className="text-white">Double-tap:</b> seek back or forward 10 seconds.</p><p><b className="text-white">Swipe:</b> horizontal scrubbing, vertical volume (right side) or brightness (left side). These gestures require a touch screen and cannot override OS-level brightness controls.</p><p><b className="text-white">Long-press:</b> temporary 2× playback. <b className="text-white">Keyboard:</b> Space/K play, ←/→ seek, F fullscreen, M mute, C subtitles, +/- speed.</p><p>Use the lock control to prevent accidental player gestures. Browser and device policies may restrict fullscreen, wake lock, rotation, or track selection.</p></div></Section>;
       case 'More': return <PlayerSettings playbackSpeed={playbackSpeed} onPlaybackSpeed={onPlaybackSpeed} repeat={repeat} onRepeat={onRepeat} onSleepTimer={onSleepTimer} shortcutsEnabled={shortcutsEnabled} onShortcutsEnabled={onShortcutsEnabled} />;
       default: return null;

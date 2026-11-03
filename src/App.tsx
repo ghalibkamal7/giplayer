@@ -17,6 +17,7 @@ export default function App() {
     file: item.file,
     fileSize: item.file.size,
     mimeType: item.file.type,
+    privateVault: item.privateVault,
   });
 
   const handleSelect = (video: VideoFile, videos: VideoFile[], allVideos: VideoFile[]) => {
@@ -27,6 +28,7 @@ export default function App() {
   };
 
   const handleBack = () => {
+    if (selectedVideo?.privateVault) URL.revokeObjectURL(selectedVideo.url);
     setSelectedVideo(null);
     setQueue([]);
   };
@@ -45,7 +47,7 @@ export default function App() {
   return (
     <>
       <div className={selectedVideo ? 'hidden' : ''}>
-        <VideoLibrary onSelect={handleSelect} onOpenStream={handleOpenStream} />
+        <VideoLibrary onSelect={handleSelect} onOpenStream={handleOpenStream} onVaultLock={handleBack} />
       </div>
       {selectedVideo && (
         <AdvancedPlayer
