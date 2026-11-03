@@ -652,34 +652,34 @@ export const VideoLibrary = ({
 
   const header = (
     <header className="app-main-header sticky top-0 z-20 border-b px-4 pb-3 pt-[max(.75rem,env(safe-area-inset-top))] sm:px-7">
-      <div className="mx-auto flex max-w-6xl items-center gap-2">
-        {(activeFolder || quickView) && (
-          <button onClick={goBack} className="rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label="Back"><ArrowLeft /></button>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-300 text-slate-950"><Play className="h-4 w-4 fill-current" /></span>
-            <span className="min-w-0">
-              <span className="block text-[10px] font-bold uppercase tracking-[.22em] text-sky-300">GIPlayer</span>
-              <h1 className="truncate text-sm font-bold text-white sm:text-lg">{playlistSelection?.name ?? currentFolder?.name ?? (quickView ? ({
-                music: 'Music', playlists: 'Video Playlists', share: 'GIPlayer Share', privacy: 'Privacy Vault',
-                stream: 'Network Stream', folders: 'Folder access', profile: 'Local profile',
-                favorites: 'Favorites', recent: 'Recently Added', continue: 'Continue Watching', settings: 'Player Settings',
-              } as Record<NonNullable<PlaylistView>, string>)[quickView] : 'Folders')}</h1>
-            </span>
-          </div>
+      <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:flex">
+        <div className="flex min-w-0 items-center gap-2">
+          {(activeFolder || quickView) && (
+            <button onClick={goBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-300 hover:bg-white/10" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
+          )}
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-300 text-slate-950"><Play className="h-4 w-4 fill-current" /></span>
+          <span className="min-w-0">
+            <span className="block text-[13px] font-extrabold leading-4 tracking-[.08em] text-white">GIPlayer</span>
+            <h1 className="truncate text-xs font-medium leading-4 text-slate-400 sm:text-sm">{playlistSelection?.name ?? currentFolder?.name ?? (quickView ? ({
+              music: 'Music', playlists: 'Video Playlists', share: 'GIPlayer Share', privacy: 'Privacy Vault',
+              stream: 'Network Stream', folders: 'Folder access', profile: 'Local profile',
+              favorites: 'Favorites', recent: 'Recently Added', continue: 'Continue Watching', settings: 'Player Settings',
+            } as Record<NonNullable<PlaylistView>, string>)[quickView] : 'Folders')}</h1>
+          </span>
         </div>
-        <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="app-nav-item shrink-0 rounded-xl p-2.5 text-slate-300 hover:bg-white/5 hover:text-white" aria-label="Search"><Search className="h-5 w-5" /></button>
-        <button onClick={() => setGrid((value) => !value)} className="app-nav-item shrink-0 rounded-xl p-2.5 text-slate-300 hover:bg-white/5 hover:text-white" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
-        {savedDirectories.length > 0 && <button onClick={() => setQuickView('folders')} className={`app-nav-item shrink-0 rounded-xl px-3 py-2 text-xs font-semibold ${needsDirectoryPermission ? 'bg-amber-400/10 text-amber-200' : 'bg-white/5 text-slate-300'}`} aria-label="Manage saved folder access">{needsDirectoryPermission ? 'Restore folders' : `${savedDirectories.length} folders`}</button>}
-        {savedDirectories.length > 0 && <button onClick={() => {
-          for (const directory of savedDirectories) void scanDirectory(directory, true).catch((error) => {
-            console.error(`Could not rescan ${directory.name}.`, error);
-            setNotice(`Could not rescan ${directory.name}. Restore its access first.`);
-          });
-        }} disabled={isImporting} className="app-nav-item shrink-0 rounded-xl p-2.5 text-slate-300 hover:bg-white/5 disabled:opacity-50" title="Rescan saved folders" aria-label="Rescan saved folders"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
-        <button onClick={() => void importFolder()} className="app-nav-item shrink-0 rounded-xl p-2.5 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" aria-label="Choose local folder" title="Choose local folder" disabled={isImporting}><FolderOpen className="h-5 w-5" /></button>
-        <button onClick={() => navigateTo('profile')} className="ml-1 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 text-slate-300 ring-1 ring-white/10 hover:ring-sky-300/50" aria-label="Open local profile" title={profile.displayName || 'Local profile'}>{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}</button>
+        <div className="col-span-2 flex items-center justify-end gap-1 sm:ml-auto sm:col-span-1 sm:gap-1.5">
+          <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 hover:text-white" aria-label="Search"><Search className="h-5 w-5" /></button>
+          <button onClick={() => setGrid((value) => !value)} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 hover:text-white" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
+          {savedDirectories.length > 0 && <button onClick={() => setQuickView('folders')} className={`app-nav-item hidden shrink-0 rounded-xl px-3 py-2 text-xs font-semibold sm:block ${needsDirectoryPermission ? 'bg-amber-400/10 text-amber-200' : 'bg-white/5 text-slate-300'}`} aria-label="Manage saved folder access">{needsDirectoryPermission ? 'Restore folders' : `${savedDirectories.length} folders`}</button>}
+          {savedDirectories.length > 0 && <button onClick={() => {
+            for (const directory of savedDirectories) void scanDirectory(directory, true).catch((error) => {
+              console.error(`Could not rescan ${directory.name}.`, error);
+              setNotice(`Could not rescan ${directory.name}. Restore its access first.`);
+            });
+          }} disabled={isImporting} className="app-nav-item hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 disabled:opacity-50 sm:flex" title="Rescan saved folders" aria-label="Rescan saved folders"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
+          <button onClick={() => void importFolder()} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" aria-label="Choose local folder" title="Choose local folder" disabled={isImporting}><FolderOpen className="h-5 w-5" /></button>
+          <button onClick={() => navigateTo('profile')} className="ml-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 text-slate-300 ring-1 ring-white/10 hover:ring-sky-300/50" aria-label="Open local profile" title={profile.displayName || 'Local profile'}>{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}</button>
+        </div>
       </div>
       {searchOpen && (
         <div className="mx-auto mt-3 max-w-6xl">
@@ -689,7 +689,8 @@ export const VideoLibrary = ({
       {!activeFolder && !quickView && (
         <nav aria-label="Library shortcuts" className="scrollbar-none mx-auto mt-3 flex max-w-6xl gap-2 overflow-x-auto pb-1 lg:hidden">
           {[
-            ...navigationItems.filter((item) => item.view !== null).map((item) => ({ label: item.label, icon: <item.icon className="h-4 w-4" />, action: () => navigateTo(item.view) })),
+            ...navigationItems.filter((item) => item.view === 'playlists').map((item) => ({ label: item.label, icon: <item.icon className="h-4 w-4" />, action: () => navigateTo(item.view) })),
+            { label: 'Settings', icon: <Settings2 className="h-4 w-4" />, action: () => navigateTo('settings') },
             { label: 'GIPlayer Share', icon: <Share2 className="h-4 w-4" />, action: () => navigateTo('share') },
             { label: 'Network Stream', icon: <Globe2 className="h-4 w-4" />, action: () => navigateTo('stream') },
           ].map((item) => <button key={item.label} onClick={item.action} className="app-nav-item flex shrink-0 items-center gap-2 rounded-xl border border-white/5 bg-[#151b1f] px-3.5 py-2.5 text-sm font-medium text-slate-300 hover:border-white/10 hover:bg-[#1c2328] hover:text-white">{item.icon}<span>{item.label}</span></button>)}
@@ -701,13 +702,13 @@ export const VideoLibrary = ({
   );
 
   const videoCard = (video: VideoFile) => (
-    <article key={video.id} className={`group relative overflow-hidden rounded-2xl border border-white/[.06] bg-[#141a1e] transition-colors hover:border-white/[.14] hover:bg-[#181f23] ${listMode ? 'flex items-center gap-3 p-2.5 sm:gap-4 sm:p-3' : ''}`}>
+    <article key={video.id} className={`group relative min-w-0 ${listMode ? 'flex items-center gap-3 rounded-xl border border-white/[.06] bg-[#141a1e] p-2.5 transition-colors hover:border-white/[.14] hover:bg-[#181f23] sm:gap-4 sm:p-3' : ''}`}>
       <button onClick={() => playVideo(video)} className={`relative block overflow-hidden text-left ${listMode ? 'h-20 w-32 shrink-0 rounded-xl' : 'aspect-video w-full'}`} aria-label={`Play ${video.name}`}>
         {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.025]" /> : <div className="flex h-full w-full items-center justify-center bg-[#20282d]">{video.kind === 'audio' ? <Music2 className="h-8 w-8 text-slate-500" /> : <Video className="h-8 w-8 text-slate-500" />}</div>}
         <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">{formatDuration(video.duration ?? Number.NaN)}</span>
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/15"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-950 opacity-0 shadow-lg transition group-hover:opacity-100"><Play className="ml-0.5 h-4 w-4 fill-current" /></span></span>
       </button>
-      <div className={`min-w-0 flex-1 ${listMode ? 'py-1 pr-1' : 'px-3 pb-3 pt-2.5'}`}>
+      <div className={`min-w-0 flex-1 ${listMode ? 'py-1 pr-1' : 'pt-2'}`}>
         <button onClick={() => playVideo(video)} className="block w-full truncate text-left text-[13px] font-semibold leading-5 text-slate-100 sm:text-sm">{video.name}</button>
         <p className="mt-1 truncate text-xs text-slate-400">{formatBytes(video.file.size)}{video.width && video.height ? ` · ${video.width}×${video.height}` : ''} · {new Date(video.lastModified).toLocaleDateString()}</p>
       </div>
@@ -892,7 +893,7 @@ export const VideoLibrary = ({
     );
     return (
       <section className="mx-auto mt-5 max-w-6xl">
-        <div className="app-surface mt-5 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between">
+        {(videos.length > 0 || folders.length > 0 || activeFolder || search.trim()) && <div className="app-surface mt-5 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-white">{activeFolder?.split('/').filter(Boolean).join(' / ') || rememberedDirectoryName || 'All selected media'}</p>
             <p className="mt-1 text-xs text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos <span className="px-1 text-slate-600">·</span> {folders.length} folders</p>
@@ -900,7 +901,7 @@ export const VideoLibrary = ({
           <label className="flex items-center gap-2 text-xs text-slate-500">Sort by<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg border border-white/[.08] bg-[#141a1e] px-3 py-2 text-sm text-white">
             <option value="name">Name</option><option value="date">Recently added</option><option value="size">File size</option>
           </select></label>
-        </div>
+        </div>}
         {filteredFolders.length || visibleDirectVideos.length
           ? renderFolderContents(visibleDirectVideos)
           : videos.length === 0

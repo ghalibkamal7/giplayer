@@ -100,9 +100,7 @@
 }
 
 .app-shell {
-  background:
-    radial-gradient(ellipse at 75% -18%, rgba(52, 126, 158, 0.09), transparent 42%),
-    var(--app-bg);
+  background: var(--app-bg);
 }
 
 .app-sidebar {
@@ -111,9 +109,9 @@
 }
 
 .app-main-header {
-  background: rgba(11, 14, 17, 0.92);
+  background: rgba(11, 14, 17, 0.97);
   border-color: var(--app-line);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(12px);
 }
 
 .app-surface {
@@ -132,6 +130,13 @@
 
 .app-nav-item:active {
   transform: scale(0.98);
+}
+
+@media (max-width: 639px) {
+  .app-main-header {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
