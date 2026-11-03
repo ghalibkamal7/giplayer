@@ -2,7 +2,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, Check, ChevronRight, Folder, FolderOpen,
   Grid2X2, Heart, List, LockKeyhole, Music2, Play, Plus, RefreshCw, Search, Share2,
-  Trash2, Video, X, Globe2, UserRound, Clock3, Settings2,
+  Trash2, Video, X, Globe2, UserRound, Clock3, Settings2, Shield,
 } from 'lucide-react';
 import { buildMediaFolderTree, getMediaDirectory, getPlayerPreference, makeVideoId, playerLibrary, RememberedDirectoryHandle, SavedDirectory, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
 import { fingerprintMediaId, getVaultFingerprints, getVaultMediaIdentity } from '../../services/privacyVault';
@@ -164,7 +164,7 @@ export const VideoLibrary = ({
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [sort, setSort] = useState<'name' | 'date' | 'size'>('name');
-  const [grid, setGrid] = useState(false);
+  const [grid, setGrid] = useState(true);
   const [notice, setNotice] = useState('');
   const [playlists, setPlaylists] = useState(() => playerLibrary.getPlaylists());
   const [playlistName, setPlaylistName] = useState('');
@@ -633,15 +633,32 @@ export const VideoLibrary = ({
     }
   };
 
+  const navigateTo = (view: PlaylistView) => {
+    setActiveFolder(null);
+    setQuickView(view);
+    setPlaylistSelection(null);
+    if (view === 'privacy') setRequestedVaultVideos([]);
+    if (view === 'profile') setProfileDraft(profile);
+  };
+  const navigationItems: { label: string; icon: typeof Video; view: PlaylistView }[] = [
+    { label: 'All videos', icon: Video, view: null },
+    { label: 'Music', icon: Music2, view: 'music' },
+    { label: 'Privacy Vault', icon: LockKeyhole, view: 'privacy' },
+    { label: 'Playlists', icon: List, view: 'playlists' },
+    { label: 'Recent', icon: RefreshCw, view: 'recent' },
+    { label: 'Favorites', icon: Heart, view: 'favorites' },
+  ];
+  const isNavigationActive = (view: PlaylistView) => quickView === view && !activeFolder;
+
   const header = (
-    <header className="sticky top-0 z-20 border-b border-white/5 bg-[#111b24]/95 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] shadow-lg shadow-black/10 backdrop-blur-xl sm:px-7">
+    <header className="app-main-header sticky top-0 z-20 border-b px-4 pb-3 pt-[max(.75rem,env(safe-area-inset-top))] sm:px-7">
       <div className="mx-auto flex max-w-6xl items-center gap-2">
         {(activeFolder || quickView) && (
           <button onClick={goBack} className="rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label="Back"><ArrowLeft /></button>
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-md shadow-sky-950/30"><Play className="h-4 w-4 fill-current text-slate-950" /></span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-300 text-slate-950"><Play className="h-4 w-4 fill-current" /></span>
             <span className="min-w-0">
               <span className="block text-[10px] font-bold uppercase tracking-[.22em] text-sky-300">GIPlayer</span>
               <h1 className="truncate text-sm font-bold text-white sm:text-lg">{playlistSelection?.name ?? currentFolder?.name ?? (quickView ? ({
@@ -652,36 +669,30 @@ export const VideoLibrary = ({
             </span>
           </div>
         </div>
-        <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label="Search"><Search className="h-5 w-5" /></button>
-        <button onClick={() => setGrid((value) => !value)} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
-        {savedDirectories.length > 0 && <button onClick={() => setQuickView('folders')} className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${needsDirectoryPermission ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-slate-300'}`} aria-label="Manage saved folder access">{needsDirectoryPermission ? 'Restore folders' : `${savedDirectories.length} folders`}</button>}
+        <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="app-nav-item shrink-0 rounded-xl p-2.5 text-slate-300 hover:bg-white/5 hover:text-white" aria-label="Search"><Search className="h-5 w-5" /></button>
+        <button onClick={() => setGrid((value) => !value)} className="app-nav-item shrink-0 rounded-xl p-2.5 text-slate-300 hover:bg-white/5 hover:text-white" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
+        {savedDirectories.length > 0 && <button onClick={() => setQuickView('folders')} className={`app-nav-item shrink-0 rounded-xl px-3 py-2 text-xs font-semibold ${needsDirectoryPermission ? 'bg-amber-400/10 text-amber-200' : 'bg-white/5 text-slate-300'}`} aria-label="Manage saved folder access">{needsDirectoryPermission ? 'Restore folders' : `${savedDirectories.length} folders`}</button>}
         {savedDirectories.length > 0 && <button onClick={() => {
           for (const directory of savedDirectories) void scanDirectory(directory, true).catch((error) => {
             console.error(`Could not rescan ${directory.name}.`, error);
             setNotice(`Could not rescan ${directory.name}. Restore its access first.`);
           });
-        }} disabled={isImporting} className="shrink-0 rounded-full p-2 text-slate-300 hover:bg-white/10 disabled:opacity-50" title="Rescan saved folders" aria-label="Rescan saved folders"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
-        <button onClick={() => void importFolder()} className="shrink-0 rounded-full p-2 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" aria-label="Choose local folder" title="Choose local folder" disabled={isImporting}><FolderOpen className="h-5 w-5" /></button>
+        }} disabled={isImporting} className="app-nav-item shrink-0 rounded-xl p-2.5 text-slate-300 hover:bg-white/5 disabled:opacity-50" title="Rescan saved folders" aria-label="Rescan saved folders"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
+        <button onClick={() => void importFolder()} className="app-nav-item shrink-0 rounded-xl p-2.5 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" aria-label="Choose local folder" title="Choose local folder" disabled={isImporting}><FolderOpen className="h-5 w-5" /></button>
+        <button onClick={() => navigateTo('profile')} className="ml-1 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 text-slate-300 ring-1 ring-white/10 hover:ring-sky-300/50" aria-label="Open local profile" title={profile.displayName || 'Local profile'}>{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}</button>
       </div>
       {searchOpen && (
         <div className="mx-auto mt-3 max-w-6xl">
-          <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} placeholder="Search videos and folders" className="w-full rounded-xl border border-white/10 bg-[#0b1219] px-4 py-2.5 text-white outline-none focus:border-sky-400" />
+          <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} placeholder="Search videos and folders" className="w-full rounded-xl border border-white/10 bg-[#12171b] px-4 py-2.5 text-white outline-none focus:border-sky-400" />
         </div>
       )}
       {!activeFolder && !quickView && (
-        <nav className="scrollbar-none mx-auto mt-3 flex max-w-6xl gap-2 overflow-x-auto pb-1">
+        <nav aria-label="Library shortcuts" className="scrollbar-none mx-auto mt-3 flex max-w-6xl gap-2 overflow-x-auto pb-1 lg:hidden">
           {[
-            { label: 'Music', icon: <Music2 />, action: () => { setQuickView('music'); setActiveFolder(null); } },
-            { label: 'Privacy Vault', icon: <LockKeyhole />, action: () => { setRequestedVaultVideos([]); setQuickView('privacy'); } },
-            { label: 'GIPlayer Share', icon: <Share2 />, action: () => setQuickView('share') },
-            { label: 'Video Playlists', icon: <List />, action: () => setQuickView('playlists') },
-            { label: 'Network Stream', icon: <Globe2 />, action: () => setQuickView('stream') },
-            { label: 'Recently Added', icon: <RefreshCw />, action: () => setQuickView('recent') },
-            { label: 'Continue Watching', icon: <Clock3 />, action: () => setQuickView('continue') },
-            { label: 'Favorites', icon: <Heart />, action: () => setQuickView('favorites') },
-            { label: profile.displayName || 'Profile', icon: <UserRound />, action: () => { setProfileDraft(profile); setQuickView('profile'); } },
-            { label: 'Settings', icon: <Settings2 />, action: () => setQuickView('settings') },
-          ].map((item) => <button key={item.label} onClick={item.action} className="flex shrink-0 items-center gap-2 rounded-full border border-white/5 bg-[#202d38] px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-sky-400/20 hover:bg-[#2b3a47]">{item.icon}<span>{item.label}</span></button>)}
+            ...navigationItems.filter((item) => item.view !== null).map((item) => ({ label: item.label, icon: <item.icon className="h-4 w-4" />, action: () => navigateTo(item.view) })),
+            { label: 'GIPlayer Share', icon: <Share2 className="h-4 w-4" />, action: () => navigateTo('share') },
+            { label: 'Network Stream', icon: <Globe2 className="h-4 w-4" />, action: () => navigateTo('stream') },
+          ].map((item) => <button key={item.label} onClick={item.action} className="app-nav-item flex shrink-0 items-center gap-2 rounded-xl border border-white/5 bg-[#151b1f] px-3.5 py-2.5 text-sm font-medium text-slate-300 hover:border-white/10 hover:bg-[#1c2328] hover:text-white">{item.icon}<span>{item.label}</span></button>)}
         </nav>
       )}
       <input ref={inputRef} type="file" multiple accept="video/*,audio/*,.mkv,.avi,.wmv,.flv,.m2ts,.mts,.vob,.mpg,.mpeg" onChange={(event) => void handleFallbackImport(event)} className="hidden" {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>} />
@@ -690,48 +701,49 @@ export const VideoLibrary = ({
   );
 
   const videoCard = (video: VideoFile) => (
-    <article key={video.id} className={`group relative overflow-hidden rounded-2xl border border-white/5 bg-[#1a252f] ${listMode ? 'flex items-center gap-4 p-3' : ''}`}>
+    <article key={video.id} className={`group relative overflow-hidden rounded-2xl border border-white/[.06] bg-[#141a1e] transition-colors hover:border-white/[.14] hover:bg-[#181f23] ${listMode ? 'flex items-center gap-3 p-2.5 sm:gap-4 sm:p-3' : ''}`}>
       <button onClick={() => playVideo(video)} className={`relative block overflow-hidden text-left ${listMode ? 'h-20 w-32 shrink-0 rounded-xl' : 'aspect-video w-full'}`} aria-label={`Play ${video.name}`}>
-        {video.thumbnail ? <img src={video.thumbnail} alt="" className="h-full w-full object-cover transition group-hover:scale-105" /> : <div className="flex h-full w-full items-center justify-center bg-[#283541]">{video.kind === 'audio' ? <Music2 className="h-8 w-8 text-slate-500" /> : <Video className="h-8 w-8 text-slate-500" />}</div>}
-        <span className="absolute bottom-2 right-2 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">{formatDuration(video.duration ?? Number.NaN)}</span>
+        {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.025]" /> : <div className="flex h-full w-full items-center justify-center bg-[#20282d]">{video.kind === 'audio' ? <Music2 className="h-8 w-8 text-slate-500" /> : <Video className="h-8 w-8 text-slate-500" />}</div>}
+        <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">{formatDuration(video.duration ?? Number.NaN)}</span>
+        <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/15"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-950 opacity-0 shadow-lg transition group-hover:opacity-100"><Play className="ml-0.5 h-4 w-4 fill-current" /></span></span>
       </button>
-      <div className={`min-w-0 flex-1 ${listMode ? 'py-1 pr-1' : 'p-3'}`}>
-        <button onClick={() => playVideo(video)} className="block w-full truncate text-left text-sm font-semibold text-slate-100">{video.name}</button>
-        <p className="mt-1 text-xs text-slate-400">{formatBytes(video.file.size)} · {new Date(video.lastModified).toLocaleDateString()}</p>
+      <div className={`min-w-0 flex-1 ${listMode ? 'py-1 pr-1' : 'px-3 pb-3 pt-2.5'}`}>
+        <button onClick={() => playVideo(video)} className="block w-full truncate text-left text-[13px] font-semibold leading-5 text-slate-100 sm:text-sm">{video.name}</button>
+        <p className="mt-1 truncate text-xs text-slate-400">{formatBytes(video.file.size)}{video.width && video.height ? ` · ${video.width}×${video.height}` : ''} · {new Date(video.lastModified).toLocaleDateString()}</p>
       </div>
-      {video.kind === 'video' && <button onClick={() => toggleFavorite(video)} className={`rounded-full p-2 hover:bg-white/10 ${favorites.has(video.id) ? 'text-rose-300' : 'text-slate-400'} ${listMode ? '' : 'absolute right-11 top-2 bg-black/50'}`} aria-label={`${favorites.has(video.id) ? 'Remove' : 'Add'} ${video.name} ${favorites.has(video.id) ? 'from' : 'to'} favorites`}><Heart className={`h-4 w-4 ${favorites.has(video.id) ? 'fill-current' : ''}`} /></button>}
-      <button onClick={() => void shareVideo(video)} className={`rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300 ${listMode ? 'mr-2' : 'absolute right-2 top-2 bg-black/50'}`} aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button>
+      {video.kind === 'video' && <button onClick={() => toggleFavorite(video)} className={`app-nav-item rounded-full p-2 hover:bg-white/10 ${favorites.has(video.id) ? 'text-rose-300' : 'text-slate-400'} ${listMode ? '' : 'absolute right-2 top-2 bg-black/55 backdrop-blur-sm'}`} aria-label={`${favorites.has(video.id) ? 'Remove' : 'Add'} ${video.name} ${favorites.has(video.id) ? 'from' : 'to'} favorites`}><Heart className={`h-4 w-4 ${favorites.has(video.id) ? 'fill-current' : ''}`} /></button>}
+      {listMode && <button onClick={() => void shareVideo(video)} className="app-nav-item rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300" aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button>}
     </article>
   );
 
   const folderCard = (folder: FolderEntry) => (
-    <article key={folder.path} className="group flex items-center gap-4 rounded-2xl border border-white/5 bg-[#1a252f] p-4 transition hover:border-sky-400/30 hover:bg-[#202d38]">
+    <article key={folder.path} className="group flex items-center gap-3 rounded-xl border border-white/[.06] bg-[#141a1e] p-3 transition-colors hover:border-white/[.14] hover:bg-[#191f23] sm:gap-4 sm:p-3.5">
       <button onClick={() => openFolder(folder)} className="flex min-w-0 flex-1 items-center gap-4 text-left">
-        <div className="relative flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#33404c]">
-          {folder.videos[0]?.thumbnail ? <img src={folder.videos[0].thumbnail} alt="" className="h-full w-full object-cover" /> : <Folder className="h-9 w-9 fill-slate-400/20 text-slate-400" />}
-          {folder.videos.some((video) => Date.now() - video.lastModified < 86400000) && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-2 py-1 text-[10px] font-bold">NEW</span>}
+        <div className="relative flex h-14 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#20282d] sm:h-16 sm:w-20">
+          {folder.videos[0]?.thumbnail ? <img src={folder.videos[0].thumbnail} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Folder className="h-8 w-8 fill-slate-400/15 text-slate-400" />}
+          {folder.videos.some((video) => Date.now() - video.lastModified < 86400000) && <span className="absolute right-1 top-1 rounded bg-sky-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-950">New</span>}
         </div>
         <span className="min-w-0 flex-1">
-          <strong className="block truncate">{folder.name}</strong>
-          <span className="mt-1 block text-sm text-slate-400">{folder.videos.length} video{folder.videos.length === 1 ? '' : 's'}</span>
+          <strong className="block truncate text-sm font-semibold">{folder.name}</strong>
+          <span className="mt-1 block text-xs text-slate-400">{folder.videos.length} video{folder.videos.length === 1 ? '' : 's'} <span className="px-1 text-slate-600">·</span> Updated {new Date(Math.max(...folder.videos.map((video) => video.lastModified))).toLocaleDateString()}</span>
         </span>
-        <ChevronRight className="h-5 w-5 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-sky-300" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-slate-200" />
       </button>
-      <button onClick={() => { setRequestedVaultVideos(folder.videos); setQuickView('privacy'); }} className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300" title="Encrypt folder videos into Privacy Vault" aria-label={`Lock ${folder.name} videos`}><LockKeyhole className="h-4 w-4" /></button>
-      <button onClick={() => addFolderToPlaylist(folder)} className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300" title="Add folder videos to playlist" aria-label={`Add ${folder.name} to playlist`}><Plus className="h-4 w-4" /></button>
+      <button onClick={() => { setRequestedVaultVideos(folder.videos); setQuickView('privacy'); }} className="app-nav-item rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white" title="Encrypt folder videos into Privacy Vault" aria-label={`Lock ${folder.name} videos`}><LockKeyhole className="h-4 w-4" /></button>
+      <button onClick={() => addFolderToPlaylist(folder)} className="app-nav-item rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white" title="Add folder videos to playlist" aria-label={`Add ${folder.name} to playlist`}><Plus className="h-4 w-4" /></button>
     </article>
   );
 
   const mainContent = () => {
     if (quickView === 'folders') return (
       <section className="mx-auto mt-8 max-w-3xl space-y-3">
-        <div className="rounded-2xl bg-[#1a252f] p-5">
+        <div className="app-surface rounded-xl border p-4">
           <h2 className="text-lg font-bold">Saved folders</h2>
           <p className="mt-1 text-sm text-slate-400">GIPlayer scans saved folders automatically when Chrome keeps access. Restore only asks for access to a folder that needs it.</p>
         </div>
         {savedDirectories.map((directory) => {
           const needsAccess = pendingDirectoryIds.includes(directory.id);
-          return <article key={directory.id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#1a252f] p-4">
+          return <article key={directory.id} className="app-surface flex items-center gap-3 rounded-xl border p-3.5">
             <FolderOpen className={`h-6 w-6 shrink-0 ${needsAccess ? 'text-amber-300' : 'text-sky-300'}`} />
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{directory.name}</p>
@@ -753,10 +765,10 @@ export const VideoLibrary = ({
       onLock={onVaultLock}
       onPlay={playVaultItem}
     />;
-    if (quickView === 'share') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Share2 className="mb-4 h-9 w-9 text-sky-400" /><h2 className="text-lg font-bold">Share a selected file</h2><p className="mt-2 text-sm leading-6 text-slate-300">Use your device share sheet on an imported item. If the browser cannot share files, GIPlayer will explain that a private local file cannot be shared as a public link.</p>{videos.length ? <div className="mt-5 grid gap-2">{videos.map((video) => <div key={video.id} className="flex items-center justify-between rounded-xl bg-black/20 p-3"><span className="truncate pr-3 text-sm">{video.name}</span><button onClick={() => void shareVideo(video)} className="rounded-full bg-sky-500/15 p-2 text-sky-300" aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button></div>)}</div> : <p className="mt-5 text-sm text-slate-400">Choose a folder first to browse your files.</p>}</section>;
-    if (quickView === 'stream') return <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6"><Globe2 className="mb-4 h-9 w-9 text-sky-400" /><h2 className="mb-4 text-lg font-bold">Play a network stream</h2><NetworkStreamDialog onPlay={onOpenStream} /></section>;
+    if (quickView === 'share') return <section className="app-surface mx-auto mt-6 max-w-2xl rounded-2xl border p-5 sm:p-6"><Share2 className="mb-4 h-5 w-5 text-sky-200" /><h2 className="text-base font-semibold">GIPlayer Share</h2><p className="mt-2 text-sm leading-6 text-slate-400">Use your device share sheet for a selected file. If the browser cannot share local files, GIPlayer explains the limitation without exposing private paths.</p>{videos.length ? <div className="mt-5 grid gap-2">{videos.map((video) => <div key={video.id} className="flex items-center justify-between rounded-xl bg-white/[.035] p-3"><span className="truncate pr-3 text-sm">{video.name}</span><button onClick={() => void shareVideo(video)} className="app-nav-item rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-sky-200" aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button></div>)}</div> : <p className="mt-5 text-sm text-slate-500">Choose a folder first to browse your files.</p>}</section>;
+    if (quickView === 'stream') return <section className="app-surface mx-auto mt-6 max-w-2xl rounded-2xl border p-5 sm:p-6"><Globe2 className="mb-4 h-5 w-5 text-sky-200" /><h2 className="mb-4 text-base font-semibold">Play a network stream</h2><NetworkStreamDialog onPlay={onOpenStream} /></section>;
     if (quickView === 'profile') return (
-      <section className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] p-6 sm:p-8">
+      <section className="app-surface mx-auto mt-6 max-w-2xl rounded-2xl border p-5 sm:p-7">
         <div className="mb-6 flex items-center gap-4">{profileDraft.avatar ? <img src={profileDraft.avatar} alt="Local profile" className="h-16 w-16 rounded-full object-cover" /> : <span className="flex h-16 w-16 items-center justify-center rounded-full bg-sky-400/10"><UserRound className="h-8 w-8 text-sky-300" /></span>}<div><h2 className="text-lg font-bold">{profile.displayName || 'Local profile'}</h2><p className="text-sm text-slate-400">Stored on this device only</p></div></div>
         <form onSubmit={(event) => { event.preventDefault(); saveProfile(); }} className="space-y-4">
           <label className="block text-sm">Display name<input value={profileDraft.displayName} onChange={(event) => setProfileDraft((current) => ({ ...current, displayName: event.target.value }))} maxLength={60} className="mt-2 w-full rounded-xl bg-black/20 px-4 py-3" placeholder="Your name" /></label>
@@ -768,16 +780,35 @@ export const VideoLibrary = ({
         </form>
       </section>
     );
-    if (quickView === 'settings') return <section className="mx-auto mt-8 max-w-2xl space-y-3 rounded-3xl border border-white/5 bg-[#1a252f] p-6">
-      <h2 className="text-lg font-bold">Player preferences</h2>
-      <label className="flex items-center justify-between rounded-xl bg-black/15 p-4 text-sm"><span>Video Display</span><input type="checkbox" checked={displayEnabled} onChange={(event) => { setDisplayEnabled(event.target.checked); setPlayerPreference('giplayer-video-display', String(event.target.checked)); }} className="h-5 w-5 accent-sky-400" /></label>
-      <label className="flex items-center justify-between rounded-xl bg-black/15 p-4 text-sm"><span>Keyboard Shortcuts</span><input type="checkbox" checked={shortcutsEnabled} onChange={(event) => { setShortcutsEnabled(event.target.checked); setPlayerPreference('giplayer-shortcuts', String(event.target.checked)); }} className="h-5 w-5 accent-sky-400" /></label>
-      <p className="text-xs leading-5 text-slate-500">These settings are saved on this browser and also apply to the player.</p>
+    if (quickView === 'settings') return <section className="mx-auto mt-6 grid max-w-5xl gap-4 md:grid-cols-2">
+      <article className="app-surface rounded-2xl border p-5">
+        <div className="mb-4 flex items-center gap-3"><span className="rounded-lg bg-white/[.06] p-2"><UserRound className="h-4 w-4 text-slate-300" /></span><div><h2 className="text-sm font-semibold">Account</h2><p className="text-xs text-slate-500">Your profile and sign-in state</p></div></div>
+        <div className="flex items-center gap-3 rounded-xl bg-white/[.035] p-3"><span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/5">{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5 text-slate-400" />}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{profile.displayName || 'Local profile'}</p><p className="truncate text-xs text-slate-500">{profile.email || 'This device only'}</p></div><span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200">Local</span></div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">No online account is connected. Your local profile does not sign in or sync between devices.</p><button onClick={() => navigateTo('profile')} className="app-nav-item mt-3 rounded-lg bg-white/[.06] px-3 py-2 text-xs font-medium text-slate-200 hover:bg-white/10">Edit profile</button>
+      </article>
+      <article className="app-surface rounded-2xl border p-5">
+        <div className="mb-4 flex items-center gap-3"><span className="rounded-lg bg-white/[.06] p-2"><Play className="h-4 w-4 text-slate-300" /></span><div><h2 className="text-sm font-semibold">Playback</h2><p className="text-xs text-slate-500">Player behavior on this browser</p></div></div>
+        <label className="flex items-center justify-between border-b border-white/[.06] py-3 text-sm"><span><span className="block font-medium">Video display</span><span className="mt-0.5 block text-xs text-slate-500">Show video picture during playback</span></span><input type="checkbox" checked={displayEnabled} onChange={(event) => { setDisplayEnabled(event.target.checked); setPlayerPreference('giplayer-video-display', String(event.target.checked)); }} className="h-4 w-4 accent-sky-400" /></label>
+        <label className="flex items-center justify-between py-3 text-sm"><span><span className="block font-medium">Keyboard shortcuts</span><span className="mt-0.5 block text-xs text-slate-500">Enable player keyboard controls</span></span><input type="checkbox" checked={shortcutsEnabled} onChange={(event) => { setShortcutsEnabled(event.target.checked); setPlayerPreference('giplayer-shortcuts', String(event.target.checked)); }} className="h-4 w-4 accent-sky-400" /></label>
+      </article>
+      <article className="app-surface rounded-2xl border p-5">
+        <div className="mb-4 flex items-center gap-3"><span className="rounded-lg bg-white/[.06] p-2"><FolderOpen className="h-4 w-4 text-slate-300" /></span><div><h2 className="text-sm font-semibold">Library & storage</h2><p className="text-xs text-slate-500">Selected media remains under your control</p></div></div>
+        <div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-white/[.035] p-3"><p className="text-lg font-semibold tabular-nums">{videos.filter((video) => video.kind === 'video').length}</p><p className="text-xs text-slate-500">Videos in memory</p></div><div className="rounded-xl bg-white/[.035] p-3"><p className="text-lg font-semibold tabular-nums">{savedDirectories.length}</p><p className="text-xs text-slate-500">Saved folders</p></div></div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">Browser-granted access only. Storage and folder permission can be cleared or revoked by the browser.</p><button onClick={() => navigateTo('folders')} className="app-nav-item mt-3 rounded-lg bg-white/[.06] px-3 py-2 text-xs font-medium text-slate-200 hover:bg-white/10">Manage folders</button>
+      </article>
+      <article className="app-surface rounded-2xl border p-5">
+        <div className="mb-4 flex items-center gap-3"><span className="rounded-lg bg-white/[.06] p-2"><Shield className="h-4 w-4 text-slate-300" /></span><div><h2 className="text-sm font-semibold">Privacy & appearance</h2><p className="text-xs text-slate-500">On-device protection and display</p></div></div>
+        <div className="flex items-center justify-between rounded-xl bg-white/[.035] p-3"><span><span className="block text-sm font-medium">Appearance</span><span className="text-xs text-slate-500">Dark · optimized for media playback</span></span><span className="rounded-full bg-white/[.06] px-2.5 py-1 text-xs text-slate-300">Dark</span></div>
+        <button onClick={() => navigateTo('privacy')} className="app-nav-item mt-3 flex w-full items-center justify-between rounded-xl bg-white/[.035] p-3 text-left hover:bg-white/[.06]"><span><span className="block text-sm font-medium">Privacy Vault</span><span className="text-xs text-slate-500">Encrypted local copies</span></span><ChevronRight className="h-4 w-4 text-slate-500" /></button>
+      </article>
+      <article className="app-surface rounded-2xl border p-5 md:col-span-2">
+        <div className="flex items-start gap-3"><span className="rounded-lg bg-white/[.06] p-2"><AudioLines className="h-4 w-4 text-slate-300" /></span><div><h2 className="text-sm font-semibold">About GIPlayer</h2><p className="mt-1 text-xs leading-5 text-slate-500">A local-first video player built for your browser. Your media stays on your device unless you explicitly share it. Supported folder access depends on browser permissions; this PWA cannot scan device storage without your selection.</p><p className="mt-2 text-xs text-slate-500">GIPlayer · Version 1.0 · Progressive Web App</p></div></div>
+      </article>
     </section>;
     if (quickView === 'playlists') return (
       <section className="mx-auto mt-6 max-w-4xl">
-        <form onSubmit={(event) => { event.preventDefault(); createPlaylist(); }} className="mb-5 flex gap-2"><input value={playlistName} onChange={(event) => setPlaylistName(event.target.value)} placeholder="New playlist name" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#1a252f] px-4 py-3 outline-none focus:border-sky-400" /><button className="rounded-xl bg-sky-500 px-4 font-semibold text-slate-950"><Plus className="inline h-4 w-4" /> Create</button></form>
-        <div className="space-y-3">{playlists.map((playlist) => <div key={playlist.id} className="rounded-2xl border border-white/5 bg-[#1a252f] p-4">
+        <form onSubmit={(event) => { event.preventDefault(); createPlaylist(); }} className="mb-5 flex gap-2"><input value={playlistName} onChange={(event) => setPlaylistName(event.target.value)} placeholder="New playlist name" className="min-w-0 flex-1 rounded-xl border border-white/[.08] bg-[#141a1e] px-4 py-3 outline-none focus:border-sky-300/50" /><button className="rounded-lg bg-sky-300 px-4 font-semibold text-slate-950"><Plus className="inline h-4 w-4" /> Create</button></form>
+        <div className="space-y-2.5">{playlists.map((playlist) => <div key={playlist.id} className="app-surface rounded-xl border p-3.5">
           <div className="flex items-center gap-2"><button onClick={() => setPlaylistSelection(playlistSelection?.id === playlist.id ? null : playlist)} className="min-w-0 flex-1 text-left"><strong className="block truncate">{playlist.name}</strong><span className="text-xs text-slate-400">{playlist.videoIds.length} saved videos</span></button><button onClick={() => { const name = window.prompt('Rename playlist', playlist.name)?.trim(); if (name && playlists.some((item) => item.id !== playlist.id && item.name.toLowerCase() === name.toLowerCase())) setNotice('A playlist with that name already exists.'); else if (name) savePlaylists(playlists.map((item) => item.id === playlist.id ? { ...item, name } : item)); }} className="rounded-lg p-2 text-slate-400 hover:bg-white/10" aria-label={`Rename ${playlist.name}`}>Rename</button><button onClick={() => { if (window.confirm(`Delete “${playlist.name}”?`)) { savePlaylists(playlists.filter((item) => item.id !== playlist.id)); if (playlistSelection?.id === playlist.id) setPlaylistSelection(null); } }} className="rounded-lg p-2 text-rose-300 hover:bg-white/10" aria-label={`Delete ${playlist.name}`}><Trash2 className="h-4 w-4" /></button>
             <button onClick={() => { const queue = playlist.videoIds.map((id) => videos.find((video) => video.id === id)).filter((video): video is VideoFile => Boolean(video)); if (queue.length) onSelect(queue[0], queue, videos.filter((video) => video.kind === 'video')); else setNotice('Re-select the source folder to play files in this playlist.'); }} className="rounded-full bg-sky-500 p-2.5 text-slate-950" aria-label={`Play ${playlist.name}`}><Play className="h-4 w-4 fill-current" /></button>
           </div>
@@ -788,14 +819,14 @@ export const VideoLibrary = ({
 
     if (['music', 'favorites', 'recent', 'continue'].includes(quickView ?? '')) {
       const items = matchingVideos(listedVideos);
-      return <section className="mx-auto mt-5 max-w-6xl"><div className="mb-4 flex flex-col items-start gap-3 min-[400px]:flex-row min-[400px]:items-center min-[400px]:justify-between"><p className="text-sm text-slate-400">{items.length} {quickView === 'music' ? 'audio tracks' : 'videos'}</p><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg bg-[#1a252f] px-3 py-2 text-sm"><option value="name">Name</option><option value="date">Recently added</option><option value="size">File size</option></select></div><div className={grid ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4' : 'space-y-2'}>{items.map(videoCard)}</div>{items.length === 0 && <p className="rounded-2xl bg-[#1a252f] p-8 text-center text-slate-400">Nothing here yet.</p>}<button onClick={() => items[0] && onSelect(items[0], items, videos.filter((video) => video.kind === 'video'))} disabled={!items.length} className="fixed bottom-6 right-5 z-10 rounded-full bg-sky-500 p-5 text-slate-950 shadow-xl shadow-sky-950/30 disabled:opacity-40" aria-label="Play all"><Play className="h-7 w-7 fill-current" /></button></section>;
+      return <section className="mx-auto mt-5 max-w-6xl"><div className="mb-4 flex items-center justify-between"><p className="text-xs text-slate-500">{items.length} {quickView === 'music' ? 'audio tracks' : 'videos'}</p><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort media" className="rounded-lg border border-white/[.07] bg-[#141a1e] px-3 py-2 text-xs text-slate-300"><option value="name">Name</option><option value="date">Recently added</option><option value="size">File size</option></select></div><div className={grid ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4' : 'space-y-2'}>{items.map(videoCard)}</div>{items.length === 0 && <p className="app-surface rounded-xl border p-8 text-center text-sm text-slate-500">Nothing here yet.</p>}<button onClick={() => items[0] && onSelect(items[0], items, videos.filter((video) => video.kind === 'video'))} disabled={!items.length} className="fixed bottom-20 right-5 z-10 rounded-full bg-sky-300 p-4 text-slate-950 shadow-lg shadow-black/30 transition hover:bg-sky-200 disabled:opacity-40 lg:bottom-7 lg:p-3.5" aria-label="Play all"><Play className="h-5 w-5 fill-current" /></button></section>;
     }
 
     const filteredFolders = folders.filter((folder) => `${folder.name} ${folder.path}`.toLowerCase().includes(search.trim().toLowerCase()));
     const rootVideoMatches = matchingVideos(videos.filter((video) =>
       video.kind === 'video' && (!search.trim() || video.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))));
     const emptyLibrary = (
-      <div className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/5 bg-[#1a252f] px-6 py-10 text-center sm:px-10">
+      <div className="app-surface mx-auto mt-8 max-w-2xl rounded-2xl border px-6 py-9 text-center sm:px-10">
         <FolderOpen className="mx-auto h-12 w-12 text-sky-400" />
         <h2 className="mt-4 text-xl font-bold">{isCheckingLibrary ? 'Checking your library…' : isImporting ? 'Scanning selected media…' : needsDirectoryPermission ? `Restore access to ${rememberedDirectoryName}` : 'Build your video library'}</h2>
         <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-400">
@@ -853,7 +884,7 @@ export const VideoLibrary = ({
           </section>
         )}
         {!filteredFolders.length && !items.length && (videos.length ? (
-          <p className="mt-8 rounded-2xl bg-[#1a252f] p-8 text-center text-slate-400">
+          <p className="app-surface mt-8 rounded-xl border p-8 text-center text-sm text-slate-400">
             {search.trim() ? 'No matching folders or videos.' : 'This folder has no media or subfolders.'}
           </p>
         ) : emptyLibrary)}
@@ -861,33 +892,74 @@ export const VideoLibrary = ({
     );
     return (
       <section className="mx-auto mt-5 max-w-6xl">
-        <div className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-[#17232d] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="app-surface mt-5 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-white">{activeFolder || rememberedDirectoryName || 'Your library'}</p>
-            <p className="mt-1 text-xs text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos · {folders.length} folders</p>
+            <p className="text-sm font-semibold text-white">{activeFolder?.split('/').filter(Boolean).join(' / ') || rememberedDirectoryName || 'All selected media'}</p>
+            <p className="mt-1 text-xs text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos <span className="px-1 text-slate-600">·</span> {folders.length} folders</p>
           </div>
-          <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg bg-[#25313c] px-3 py-2 text-sm text-white">
-            <option value="name">Sort by name</option><option value="date">Recently added</option><option value="size">File size</option>
-          </select>
+          <label className="flex items-center gap-2 text-xs text-slate-500">Sort by<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="rounded-lg border border-white/[.08] bg-[#141a1e] px-3 py-2 text-sm text-white">
+            <option value="name">Name</option><option value="date">Recently added</option><option value="size">File size</option>
+          </select></label>
         </div>
         {filteredFolders.length || visibleDirectVideos.length
           ? renderFolderContents(visibleDirectVideos)
           : videos.length === 0
             ? emptyLibrary
-            : <p className="mt-8 rounded-2xl bg-[#1a252f] p-8 text-center text-slate-400">{search.trim() ? 'No matching folders or videos.' : 'No media found in this folder.'}</p>}
+            : <p className="app-surface mt-8 rounded-xl border p-8 text-center text-sm text-slate-400">{search.trim() ? 'No matching folders or videos.' : 'No media found in this folder.'}</p>}
         {videos.some((video) => video.kind === 'video') && (
           <button onClick={() => {
             const queue = activeFolder ? currentFolder?.videos ?? directFolderVideos : videos.filter((video) => video.kind === 'video');
             if (queue.length) onSelect(queue[0], matchingVideos(queue), videos.filter((video) => video.kind === 'video'));
-          }} className="fixed bottom-6 right-5 z-10 rounded-full bg-sky-500 p-5 text-slate-950 shadow-xl shadow-sky-950/30 transition hover:scale-105" aria-label="Play all videos in this folder">
-            <Play className="h-7 w-7 fill-current" />
+          }} className="fixed bottom-20 right-5 z-10 flex items-center gap-2 rounded-full bg-sky-300 px-4 py-3.5 font-semibold text-slate-950 shadow-lg shadow-black/30 transition hover:bg-sky-200 lg:bottom-7" aria-label="Play all videos in this folder">
+            <Play className="h-4 w-4 fill-current" /><span className="text-sm">Play all</span>
           </button>
         )}
       </section>
     );
   };
 
-  return <main className="min-h-screen bg-[#111b24] pb-24 text-white">{header}<div className="mx-auto max-w-6xl px-4 pb-8 sm:px-7">{notice && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-100"><AudioLines className="h-4 w-4 shrink-0" /><span className="flex-1">{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}{mainContent()}</div></main>;
+  return <main className="app-shell min-h-[100dvh] text-white lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
+    <aside className="app-sidebar sticky top-0 hidden h-[100dvh] flex-col border-r px-4 py-5 lg:flex">
+      <button onClick={() => navigateTo(null)} className="mb-9 flex items-center gap-3 px-2 text-left" aria-label="GIPlayer home">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-300 text-slate-950"><Play className="h-4 w-4 fill-current" /></span>
+        <span><strong className="block text-sm font-bold tracking-wide">GIPlayer</strong><span className="text-[11px] text-slate-500">Your media, your space</span></span>
+      </button>
+      <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">Library</p>
+      <nav aria-label="Main navigation" className="space-y-1">
+        {navigationItems.map(({ label, icon: Icon, view }) => <button key={label} onClick={() => navigateTo(view)} aria-current={isNavigationActive(view) ? 'page' : undefined} className={`app-nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium ${isNavigationActive(view) ? 'bg-sky-300/10 text-sky-200' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><Icon className="h-[17px] w-[17px]" />{label}</button>)}
+      </nav>
+      <div className="my-5 border-t border-white/[.07]" />
+      <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">More</p>
+      <nav aria-label="More navigation" className="space-y-1">
+        <button onClick={() => navigateTo('continue')} className={`app-nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium ${isNavigationActive('continue') ? 'bg-sky-300/10 text-sky-200' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><Clock3 className="h-[17px] w-[17px]" />Continue watching</button>
+        <button onClick={() => navigateTo('stream')} className={`app-nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium ${isNavigationActive('stream') ? 'bg-sky-300/10 text-sky-200' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><Globe2 className="h-[17px] w-[17px]" />Network stream</button>
+        <button onClick={() => navigateTo('folders')} className={`app-nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium ${isNavigationActive('folders') ? 'bg-sky-300/10 text-sky-200' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><FolderOpen className="h-[17px] w-[17px]" />Manage folders</button>
+        <button onClick={() => navigateTo('settings')} className={`app-nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium ${isNavigationActive('settings') ? 'bg-sky-300/10 text-sky-200' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><Settings2 className="h-[17px] w-[17px]" />Settings</button>
+      </nav>
+      <div className="mt-auto border-t border-white/[.07] pt-4">
+        <button onClick={() => navigateTo('profile')} className="flex w-full items-center gap-3 rounded-xl p-2 text-left hover:bg-white/5">
+          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10">{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-4 w-4 text-slate-300" />}</span>
+          <span className="min-w-0"><strong className="block truncate text-xs font-medium">{profile.displayName || 'Local profile'}</strong><span className="text-[10px] text-slate-500">On this device</span></span>
+        </button>
+      </div>
+    </aside>
+    <div className="min-w-0">
+      {header}
+      <div className="mx-auto max-w-[1480px] px-4 pb-28 sm:px-7 lg:px-8 lg:pb-10">
+        {notice && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-sky-300/15 bg-sky-300/[.07] px-4 py-3 text-sm text-sky-100"><AudioLines className="h-4 w-4 shrink-0" /><span className="flex-1">{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss" className="rounded-md p-1 hover:bg-white/10"><X className="h-4 w-4" /></button></div>}
+        {!quickView && !activeFolder && <section className="mx-auto mt-7 max-w-6xl">
+          <div className="flex flex-col gap-4 border-b border-white/[.07] pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div><p className="text-[11px] font-semibold uppercase tracking-[.16em] text-sky-300">Your collection</p><h2 className="mt-1 text-[1.65rem] font-semibold tracking-tight text-white sm:text-3xl">Video library</h2><p className="mt-1.5 text-sm text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos <span className="px-1 text-slate-600">·</span> {folderNodes.length} folders</p></div>
+            <button onClick={() => void importFolder()} disabled={isImporting} className="app-nav-item inline-flex w-fit items-center gap-2 rounded-lg bg-sky-300 px-3.5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-sky-200 disabled:opacity-50"><Plus className="h-4 w-4" />Add media</button>
+          </div>
+        </section>}
+        {mainContent()}
+      </div>
+    </div>
+    <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-white/[.08] bg-[#0f1418]/95 px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl lg:hidden">
+      {[navigationItems[0], navigationItems[1], navigationItems[4], navigationItems[5], navigationItems[2]].map(({ label, icon: Icon, view }) => <button key={label} onClick={() => navigateTo(view)} aria-current={isNavigationActive(view) ? 'page' : undefined} className={`app-nav-item flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-medium ${isNavigationActive(view) ? 'text-sky-200' : 'text-slate-500'}`}><Icon className="h-[18px] w-[18px]" /><span>{label === 'All videos' ? 'Library' : label === 'Privacy Vault' ? 'Privacy' : label}</span></button>)}
+    </nav>
+  </main>;
 };
 
 export { VideoLibrary as VideoFolderBrowser };

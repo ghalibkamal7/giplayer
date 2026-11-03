@@ -1,7 +1,7 @@
 import { ChangeEvent, PointerEvent, TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
-  ArrowLeft, ChevronDown, Lock, Maximize, Minimize, Music2,
+  ArrowLeft, ChevronDown, Lock, Maximize, Minimize, Music2, Ratio,
   Pause, Play, SkipBack, SkipForward, Subtitles, Volume2, VolumeX,
 } from 'lucide-react';
 import MoreOptionsMenu, { AspectRatioChoice, PanelName, PlayerVideo } from './MoreOptionsMenu';
@@ -54,16 +54,16 @@ export function VideoPlayerControls({
 }) {
   const playedPercent = duration ? currentTime / duration * 100 : 0;
   const bufferedPercent = duration ? buffered / duration * 100 : 0;
-  return <footer className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2 pb-[max(1rem,env(safe-area-inset-bottom))] pt-12 transition-opacity min-[350px]:px-4 ${visible && !locked ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
-    <div className="mb-3 flex items-center gap-2 text-xs tabular-nums sm:gap-3 sm:text-sm"><span>{timestamp(currentTime)}</span><input aria-label="Seek video" className="h-1.5 min-w-0 flex-1 cursor-pointer accent-sky-400" type="range" min="0" max={duration || 0} step="0.1" value={currentTime} onChange={(event: ChangeEvent<HTMLInputElement>) => onSeek(Number(event.target.value))} style={{ background: `linear-gradient(to right,#38bdf8 ${playedPercent}%,#ffffff70 ${playedPercent}%,#ffffff70 ${bufferedPercent}%,#ffffff45 ${bufferedPercent}%)` }} /><span>{timestamp(duration)}</span></div>
-    <div className="flex items-center justify-between gap-0 min-[350px]:gap-1">
-      <button onClick={onLock} aria-label="Lock controls" title="Lock controls" className="rounded-full p-2 hover:bg-white/10 min-[350px]:p-3"><Lock className="h-5 w-5" /></button>
-      <button onClick={onPrevious} aria-label="Previous video" className="rounded-full p-2 hover:bg-white/10 min-[350px]:p-3"><SkipBack className="h-6 w-6 fill-white" /></button>
-      <button onClick={onTogglePlay} aria-label={playing ? 'Pause' : 'Play'} className="rounded-full p-3 hover:bg-white/10 min-[350px]:p-4">{playing ? <Pause className="h-7 w-7 fill-white" /> : <Play className="h-7 w-7 fill-white" />}</button>
-      <button onClick={onNext} aria-label="Next video" className="rounded-full p-2 hover:bg-white/10 min-[350px]:p-3"><SkipForward className="h-6 w-6 fill-white" /></button>
-      <button onClick={onAspectRatio} aria-label={`Aspect ratio ${aspectRatio}`} title={`Aspect ratio: ${aspectRatio}`} className="hidden rounded-full p-3 text-sm font-bold hover:bg-white/10 min-[350px]:block">↔</button>
-      <button onClick={onFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="rounded-full p-2 hover:bg-white/10 min-[350px]:p-3">{isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}</button>
-      <button onClick={onToggleMute} aria-label={muted ? 'Unmute' : 'Mute'} className="hidden rounded-full p-3 hover:bg-white/10 min-[350px]:block">{muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}</button>
+  return <footer className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-3 pb-[max(.8rem,env(safe-area-inset-bottom))] pt-12 transition-opacity duration-200 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] ${visible && !locked ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
+    <div className="mb-3 flex items-center gap-2 text-[11px] tabular-nums text-white/75 sm:gap-3 sm:text-xs"><span>{timestamp(currentTime)}</span><input aria-label="Seek video" className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full accent-sky-300" type="range" min="0" max={duration || 0} step="0.1" value={currentTime} onChange={(event: ChangeEvent<HTMLInputElement>) => onSeek(Number(event.target.value))} style={{ background: `linear-gradient(to right,#7dd3fc ${playedPercent}%,#ffffff70 ${playedPercent}%,#ffffff70 ${bufferedPercent}%,#ffffff35 ${bufferedPercent}%)` }} /><span>{timestamp(duration)}</span></div>
+    <div className="mx-auto flex max-w-xl items-center justify-between gap-0.5 sm:gap-2">
+      <button onClick={onLock} aria-label="Lock controls" title="Lock controls" className="rounded-full p-2.5 text-white/75 transition hover:bg-white/10 hover:text-white sm:p-3"><Lock className="h-[18px] w-[18px]" /></button>
+      <button onClick={onPrevious} aria-label="Previous video" className="rounded-full p-2.5 text-white/75 transition hover:bg-white/10 hover:text-white sm:p-3"><SkipBack className="h-5 w-5 fill-current" /></button>
+      <button onClick={onTogglePlay} aria-label={playing ? 'Pause' : 'Play'} className="rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20 active:scale-95 sm:p-3.5">{playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="ml-0.5 h-5 w-5 fill-current" />}</button>
+      <button onClick={onNext} aria-label="Next video" className="rounded-full p-2.5 text-white/75 transition hover:bg-white/10 hover:text-white sm:p-3"><SkipForward className="h-5 w-5 fill-current" /></button>
+      <button onClick={onAspectRatio} aria-label={`Aspect ratio ${aspectRatio}`} title={`Aspect ratio: ${aspectRatio}`} className="hidden items-center gap-1 rounded-full px-2.5 py-2 text-xs font-medium text-white/70 transition hover:bg-white/10 hover:text-white min-[390px]:flex"><Ratio className="h-[18px] w-[18px]" /><span>{aspectRatio}</span></button>
+      <button onClick={onToggleMute} aria-label={muted ? 'Unmute' : 'Mute'} className="hidden rounded-full p-2.5 text-white/70 transition hover:bg-white/10 hover:text-white min-[390px]:block">{muted ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}</button>
+      <button onClick={onFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="rounded-full p-2.5 text-white/75 transition hover:bg-white/10 hover:text-white sm:p-3">{isFullscreen ? <Minimize className="h-[18px] w-[18px]" /> : <Maximize className="h-[18px] w-[18px]" />}</button>
     </div>
   </footer>;
 }

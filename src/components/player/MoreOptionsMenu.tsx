@@ -263,21 +263,21 @@ export default function MoreOptionsMenu({
 
   };
 
-  return <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-5" onClick={onClose}>
-    <div role="dialog" aria-modal="true" aria-label="Player options" className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-[#111820] text-white shadow-2xl sm:rounded-3xl" onClick={(event) => event.stopPropagation()}>
-      <header className="flex shrink-0 items-center gap-3 border-b border-white/10 px-5 py-4">
+  return <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-[3px] sm:items-center sm:p-5" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label="Player options" className="flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-[1.4rem] border border-white/[.09] bg-[#12171b] text-white shadow-[0_24px_80px_rgba(0,0,0,.6)] sm:rounded-2xl" onClick={(event) => event.stopPropagation()}>
+      <header className="flex shrink-0 items-center gap-3 border-b border-white/[.07] px-4 py-3.5 sm:px-5">
         {panel && <button onClick={() => { setPanel(null); setCutMessage(''); }} aria-label="Back to options" className="rounded-full p-2 text-slate-300 hover:bg-white/10"><ChevronLeft className="h-5 w-5" /></button>}
-        <div className="min-w-0 flex-1"><h2 className="text-lg font-bold">{panel || 'More Options'}</h2><p className="truncate text-xs text-slate-400">{video.name}</p></div>
+        <div className="min-w-0 flex-1"><h2 className="text-base font-semibold">{panel || 'More options'}</h2><p className="truncate text-xs text-slate-500">{video.name}</p></div>
         <button onClick={onClose} aria-label="Close options" className="rounded-full p-2 text-slate-300 hover:bg-white/10"><X className="h-5 w-5" /></button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6">
         {panel ? <div className="space-y-5">{renderPanel()}</div> : <>
-          <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4">
-            {panelNames.map(({ name, icon: Icon, hint }) => <button key={name} onClick={() => setPanel(name)} className="group flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3 text-center transition hover:bg-white/5"><span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 text-slate-100 transition group-hover:border-sky-400 group-hover:text-sky-300"><Icon className="h-6 w-6" /></span><span className="text-sm font-medium">{name}</span><span className="text-[11px] text-slate-500">{hint}</span></button>)}
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2">
+            {panelNames.map(({ name, icon: Icon, hint }) => <button key={name} onClick={() => setPanel(name)} className="group app-nav-item flex min-h-[6.8rem] flex-col items-center justify-center gap-2 rounded-xl px-1.5 py-3 text-center hover:bg-white/[.04] sm:min-h-28"><span className="flex h-11 w-11 items-center justify-center rounded-full border border-white/[.11] bg-white/[.025] text-slate-200 transition group-hover:border-sky-300/40 group-hover:bg-sky-300/[.07] group-hover:text-sky-200"><Icon className="h-[19px] w-[19px]" /></span><span className="text-xs font-medium text-slate-100 sm:text-[13px]">{name}</span><span className="text-[10px] leading-4 text-slate-500 sm:text-[11px]">{hint}</span></button>)}
           </div>
-          <div className="mt-5 space-y-2 border-t border-white/10 pt-5">
-            <label className="flex items-center justify-between rounded-xl px-1 py-2 text-sm"><span className="flex items-center gap-3"><Eye className="h-5 w-5 text-slate-300" />Video Display</span><input aria-label="Video Display" type="checkbox" checked={displayEnabled} onChange={(event) => onDisplayEnabled(event.target.checked)} className="h-5 w-5 accent-sky-400" /></label>
-            <label className="flex items-center justify-between rounded-xl px-1 py-2 text-sm"><span className="flex items-center gap-3"><Gauge className="h-5 w-5 text-slate-300" />Shortcuts</span><input aria-label="Shortcuts" type="checkbox" checked={shortcutsEnabled} onChange={(event) => onShortcutsEnabled(event.target.checked)} className="h-5 w-5 accent-sky-400" /></label>
+          <div className="mt-4 grid gap-2 border-t border-white/[.07] pt-4 sm:grid-cols-2">
+            <label className="flex items-center justify-between rounded-xl bg-white/[.035] px-3 py-2.5 text-sm"><span className="flex items-center gap-2.5"><Eye className="h-4 w-4 text-slate-400" />Video display</span><input aria-label="Video Display" type="checkbox" checked={displayEnabled} onChange={(event) => onDisplayEnabled(event.target.checked)} className="h-4 w-4 accent-sky-400" /></label>
+            <label className="flex items-center justify-between rounded-xl bg-white/[.035] px-3 py-2.5 text-sm"><span className="flex items-center gap-2.5"><Gauge className="h-4 w-4 text-slate-400" />Keyboard shortcuts</span><input aria-label="Shortcuts" type="checkbox" checked={shortcutsEnabled} onChange={(event) => onShortcutsEnabled(event.target.checked)} className="h-4 w-4 accent-sky-400" /></label>
           </div>
         </>}
       </div>

@@ -136,7 +136,7 @@ export default function PrivacyVault({ videos, requestedVideos, onHideMedia, onU
     setError('');
     try {
       const mediaIdentity = getVaultMediaIdentity(video.sourceId, video.relativePath, video.file);
-      await saveVaultMedia(key, video.file, mediaIdentity, video.relativePath, video.sourceId);
+      await saveVaultMedia(key, video.file, mediaIdentity, video.relativePath, video.sourceId, video.thumbnail);
       await onHideMedia([video.id]);
       setItems(await listVaultMedia(key));
       setStatus(`Encrypted ${video.name} and hid it from the public library.`);
@@ -156,7 +156,7 @@ export default function PrivacyVault({ videos, requestedVideos, onHideMedia, onU
     try {
       for (const video of requestedVideos) {
         const mediaIdentity = getVaultMediaIdentity(video.sourceId, video.relativePath, video.file);
-        await saveVaultMedia(key, video.file, mediaIdentity, video.relativePath, video.sourceId);
+        await saveVaultMedia(key, video.file, mediaIdentity, video.relativePath, video.sourceId, video.thumbnail);
         completedVideos.push(video);
       }
       await onHideMedia(completedVideos.map((video) => video.id));
@@ -237,8 +237,8 @@ export default function PrivacyVault({ videos, requestedVideos, onHideMedia, onU
   if (configured === null) return <p className="mt-10 text-center text-sm text-slate-400">Checking secure vault storage…</p>;
 
   return <section className="mx-auto mt-6 max-w-4xl">
-    <div className="rounded-3xl border border-sky-500/15 bg-gradient-to-br from-[#172b3b] to-[#17232d] p-5 sm:p-7">
-      <div className="flex items-start gap-4"><span className="rounded-2xl bg-sky-400/10 p-3"><Shield className="h-7 w-7 text-sky-300" /></span><div><h2 className="text-xl font-bold">Privacy Vault</h2><p className="mt-1 text-sm leading-6 text-slate-300">Private copies are encrypted with AES-GCM before being saved on this device. The original source file remains unchanged and is still accessible outside GIPlayer; locking only hides it inside this library. Browser storage can still be cleared by the user or operating system.</p></div></div>
+    <div className="rounded-2xl border border-white/[.07] bg-[#141a1e] p-5 sm:p-6">
+      <div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-sky-300/20 bg-sky-300/[.06]"><Shield className="h-5 w-5 text-sky-200" /></span><div><h2 className="text-lg font-semibold">Privacy Vault</h2><p className="mt-1 text-sm leading-6 text-slate-400">Encrypted copies stay in this browser profile. Your original source file is unchanged and remains accessible outside GIPlayer. Browser storage can still be cleared by the user or operating system.</p></div></div>
     </div>
     {showRecovery && recoveryCode && <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4"><p className="font-semibold text-amber-100">Save this recovery code now</p><p className="mt-1 text-sm text-amber-100/80">This code is shown only now. If you dismiss it, you can generate a replacement while the vault is unlocked.</p><code className="mt-3 block select-all break-all rounded-lg bg-black/30 p-3 font-mono text-lg tracking-wider">{recoveryCode}</code><button onClick={() => void copyRecoveryCode()} className="mt-3 rounded-lg bg-amber-200/10 px-3 py-2 text-sm text-amber-100">Copy recovery code</button><button onClick={() => { setShowRecovery(false); setRecoveryCode(''); }} className="ml-2 rounded-lg bg-amber-200/10 px-3 py-2 text-sm text-amber-100">I saved it</button></div>}
     {status && <p role="status" className="mt-4 rounded-xl bg-sky-400/10 px-4 py-3 text-sm text-sky-100">{status}</p>}
@@ -250,7 +250,12 @@ export default function PrivacyVault({ videos, requestedVideos, onHideMedia, onU
       {videos.length > 0 && <div className="mt-6"><h3 className="mb-2 text-sm font-semibold text-slate-300">Lock a video</h3><div className="max-h-64 space-y-2 overflow-auto">{videos.map((video) => <div key={video.id} className="flex items-center gap-3 rounded-xl bg-black/15 p-3"><Video className="h-4 w-4 text-slate-400" /><span className="min-w-0 flex-1 truncate text-sm">{video.name}</span><button disabled={busy} onClick={() => void lockVideo(video)} className="rounded-lg bg-sky-400/10 px-3 py-1.5 text-xs text-sky-200 disabled:opacity-50">Encrypt & hide</button></div>)}</div></div>}
       <div className="mt-6 space-y-2">
         <h3 className="text-sm font-semibold text-slate-300">Private media</h3>
-        {items.length ? items.map((item) => <article key={item.id} className="flex items-center gap-3 rounded-xl border border-white/5 bg-black/15 p-3"><LockKeyhole className="h-4 w-4 shrink-0 text-sky-300" /><span className="min-w-0 flex-1 truncate text-sm">{item.name}</span><span className="text-xs text-slate-500">{(item.size / 1024 / 1024).toFixed(1)} MB</span><button disabled={busy} onClick={() => void playPrivate(item)} className="rounded-lg bg-sky-500/15 px-3 py-1.5 text-xs text-sky-200">Play</button><button disabled={busy} onClick={() => void removePrivate(item)} aria-label={`Delete ${item.name}`} className="rounded p-2 text-slate-400 hover:text-rose-300"><X className="h-4 w-4" /></button></article>) : <p className="rounded-xl bg-black/10 p-4 text-sm text-slate-400">No private media yet. Encrypt a video above to add it.</p>}
+        {items.length ? <div className="grid gap-2 sm:grid-cols-2">{items.map((item) => <article key={item.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-white/[.06] bg-[#141a1e] p-2.5">
+          <div className="flex h-[54px] w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/[.04]">{item.thumbnail ? <img src={item.thumbnail} alt="" className="h-full w-full object-cover" /> : <Video className="h-5 w-5 text-slate-500" />}</div>
+          <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-100">{item.name}</p><p className="mt-1 text-[10px] text-slate-500">{(item.size / 1024 / 1024).toFixed(1)} MB</p></div>
+          <button disabled={busy} onClick={() => void playPrivate(item)} className="rounded-lg bg-sky-300/10 px-2.5 py-2 text-xs font-medium text-sky-200 hover:bg-sky-300/15">Play</button>
+          <button disabled={busy} onClick={() => void removePrivate(item)} aria-label={`Delete ${item.name}`} className="rounded-lg p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300"><X className="h-4 w-4" /></button>
+        </article>)}</div> : <p className="rounded-xl border border-dashed border-white/[.1] p-5 text-center text-sm text-slate-500">No private media yet. Encrypt a video above to add it.</p>}
       </div>
       {error && <p role="alert" className="mt-4 text-sm text-rose-300">{error}</p>}
     </> : !showRecovery && unlockForm}

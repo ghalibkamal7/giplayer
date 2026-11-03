@@ -31,6 +31,7 @@ export type VaultMediaInfo = {
   fingerprint: string;
   sourcePath: string;
   sourceId?: string;
+  thumbnail?: string;
 };
 
 export type DecryptedVaultMedia = VaultMediaInfo & { id: string };
@@ -390,7 +391,7 @@ async function vaultContainsFingerprint(fingerprint: string): Promise<boolean> {
   }
 }
 
-export async function saveVaultMedia(key: VaultKey, file: File, mediaId: string, path: string, sourceId?: string): Promise<void> {
+export async function saveVaultMedia(key: VaultKey, file: File, mediaId: string, path: string, sourceId?: string, thumbnail?: string): Promise<void> {
   const fingerprint = await fingerprintMediaId(mediaId);
   if (await vaultContainsFingerprint(fingerprint)) return;
   await addVaultMedia(key, file, {
@@ -401,5 +402,6 @@ export async function saveVaultMedia(key: VaultKey, file: File, mediaId: string,
     fingerprint,
     sourcePath: path,
     sourceId,
+    thumbnail,
   }, fingerprint);
 }
