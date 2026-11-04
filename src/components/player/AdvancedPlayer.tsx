@@ -2,7 +2,7 @@ import { ChangeEvent, PointerEvent, TouchEvent, useCallback, useEffect, useMemo,
 import Hls from 'hls.js';
 import {
   ArrowLeft, ChevronDown, Lock, Maximize, Minimize, Music2, Ratio, RotateCw,
-  Pause, Play, SkipBack, SkipForward, Subtitles, Volume2, VolumeX,
+  Pause, Play, SkipBack, SkipForward, Subtitles, Sun, Volume2, VolumeX,
 } from 'lucide-react';
 import MoreOptionsMenu, { AspectRatioChoice, PanelName, PlayerVideo } from './MoreOptionsMenu';
 import { getPlayerPreference, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
@@ -18,6 +18,19 @@ type Props = {
 type SubtitleCue = { start: number; end: number; text: string };
 type AudioTrackList = { length: number; [index: number]: { id: number; label?: string; language?: string; enabled: boolean } };
 type VideoWithAudioTracks = HTMLVideoElement & { audioTracks?: AudioTrackList };
+type TouchGesture = 'pending' | 'seek' | 'volume' | 'brightness';
+type TouchOrigin = {
+  x: number;
+  y: number;
+  time: number;
+  startTime: number;
+  startVolume: number;
+  startBrightness: number;
+  moved: boolean;
+  gesture: TouchGesture;
+  seekTarget: number;
+  volumeTarget: number;
+};
 const ASPECT_RATIOS: AspectRatioChoice[] = ['Fit', 'Fill', 'Stretch', 'Crop', 'Original', '16:9', '4:3'];
 
 function timestamp(value: number): string {
@@ -99,7 +112,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const hideTimer = useRef<number | null>(null);
   const touchTimer = useRef<number | null>(null);
   const temporarySpeed = useRef<number | null>(null);
-  const touchOrigin = useRef<{ x: number; y: number; time: number; startTime: number; moved: boolean } | null>(null);
+  const touchOrigin = useRef<TouchOrigin | null>(null);
   const lastTap = useRef<{ x: number; time: number } | null>(null);
   const wakeLock = useRef<{ release: () => Promise<void> } | null>(null);
   const equalizer = useRef<{ context: AudioContext; filters: BiquadFilterNode[] } | null>(null);
@@ -134,9 +147,10 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const [sleepSeconds, setSleepSeconds] = useState<number | null>(null);
   const [volume, setVolume] = useState(() => {
     const saved = Number(getPlayerPreference('giplayer-player-volume', '1'));
-    return Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : 1;
+    return Number.isFinite(saved) && saved > 0 ? Math.min(1, Math.max(0, saved)) : 1;
   });
-  const [muted, setMuted] = useState(() => getPlayerPreference('giplayer-player-muted', 'false') === 'true');
+  const [muted, setMuted] = useState(false);
+  const [gestureFeedback, setGestureFeedback] = useState<{ kind: 'volume' | 'brightness'; value: number } | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toast, setToast] = useState('');
@@ -194,6 +208,8 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     hlsRef.current?.destroy();
     hlsRef.current = null;
     element.removeAttribute('src');
+    element.muted = false;
+    setMuted(false);
     const saved = video.privateVault ? 0 : Number(getPlayerPreference(`giplayer-playback:${video.id}`, '0'));
 
     if (/\.m3u8(?:$|[?#])/i.test(video.url) && Hls.isSupported()) {
@@ -321,7 +337,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     if (videoRef.current) videoRef.current.playbackRate = next;
   };
 
-  const changeVolume = (next: number) => {
+  const changeVolume = (next: number, persist = true) => {
     const safe = Math.min(1, Math.max(0, next));
     if (videoRef.current) {
       videoRef.current.volume = safe;
@@ -329,8 +345,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     }
     setVolume(safe);
     setMuted(safe === 0);
-    if (safe > 0) setPlayerPreference('giplayer-player-volume', String(safe));
-    setPlayerPreference('giplayer-player-muted', String(safe === 0));
+    if (persist && safe > 0) setPlayerPreference('giplayer-player-volume', String(safe));
   };
 
   const toggleMute = () => {
@@ -340,7 +355,6 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       return;
     }
     setMuted(true);
-    setPlayerPreference('giplayer-player-muted', 'true');
     if (videoRef.current) videoRef.current.muted = true;
   };
 
@@ -535,7 +549,18 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       return;
     }
     lastTap.current = { x: touch.clientX, time: now };
-    touchOrigin.current = { x: touch.clientX, y: touch.clientY, time: now, startTime: videoRef.current?.currentTime || 0, moved: false };
+    touchOrigin.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: now,
+      startTime: videoRef.current?.currentTime || 0,
+      startVolume: volume,
+      startBrightness: brightness,
+      moved: false,
+      gesture: 'pending',
+      seekTarget: videoRef.current?.currentTime || 0,
+      volumeTarget: volume,
+    };
     touchTimer.current = window.setTimeout(() => {
       if (touchOrigin.current && !touchOrigin.current.moved && videoRef.current) {
         temporarySpeed.current = speed;
@@ -556,25 +581,42 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     if (touchTimer.current) window.clearTimeout(touchTimer.current);
     const width = containerRef.current?.clientWidth || window.innerWidth;
     const height = containerRef.current?.clientHeight || window.innerHeight;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      if (duration > 0) seek(start.startTime + dx / width * Math.min(duration, 90));
-    } else if (start.x > width / 2) {
-      const nextVolume = Math.max(0, Math.min(1, volume - dy / height));
-      changeVolume(nextVolume);
+    if (start.gesture === 'pending') {
+      start.gesture = Math.abs(dx) > Math.abs(dy)
+        ? 'seek'
+        : start.x < width / 2 ? 'volume' : 'brightness';
+    }
+    if (start.gesture === 'seek') {
+      if (duration > 0) {
+        start.seekTarget = Math.max(0, Math.min(duration, start.startTime + dx / width * Math.min(duration, 90)));
+        setToast(`${timestamp(start.seekTarget)} · ${start.seekTarget >= start.startTime ? '+' : ''}${Math.round(start.seekTarget - start.startTime)}s`);
+      }
+    } else if (start.gesture === 'volume') {
+      const nextVolume = Math.max(0, Math.min(1, start.startVolume - dy / height));
+      start.volumeTarget = nextVolume;
+      changeVolume(nextVolume, false);
+      setGestureFeedback({ kind: 'volume', value: nextVolume });
       setToast(`Volume ${Math.round(nextVolume * 100)}%`);
     } else {
-      setBrightness(Math.max(0.5, Math.min(1.5, brightness - dy / height)));
-      setToast(`Brightness ${Math.round((brightness - dy / height) * 100)}%`);
+      const nextBrightness = Math.max(0.5, Math.min(1.5, start.startBrightness - dy / height));
+      setBrightness(nextBrightness);
+      setGestureFeedback({ kind: 'brightness', value: (nextBrightness - 0.5) });
+      setToast(`Brightness ${Math.round(nextBrightness * 100)}%`);
     }
   };
 
   const onTouchEnd = () => {
     if (touchTimer.current) window.clearTimeout(touchTimer.current);
+    if (touchOrigin.current?.gesture === 'seek' && touchOrigin.current.moved) seek(touchOrigin.current.seekTarget);
+    if (touchOrigin.current?.gesture === 'volume' && touchOrigin.current.moved && touchOrigin.current.volumeTarget > 0) {
+      setPlayerPreference('giplayer-player-volume', String(touchOrigin.current.volumeTarget));
+    }
     if (temporarySpeed.current !== null && videoRef.current) {
       videoRef.current.playbackRate = temporarySpeed.current;
       temporarySpeed.current = null;
     }
     if (touchOrigin.current?.moved) setToast('');
+    setGestureFeedback(null);
     touchOrigin.current = null;
   };
 
@@ -638,7 +680,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       ref={videoRef}
       autoPlay
       playsInline
-      preload="metadata"
+      preload="auto"
       className={`absolute inset-0 m-auto h-full w-full transition-opacity duration-200 ${displayEnabled ? 'opacity-100' : 'opacity-0'}`}
       style={{ ...ratioStyles, filter: `brightness(${brightness})` }}
       onTimeUpdate={() => {
@@ -668,6 +710,14 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       onError={() => { if (!loading) setError('The selected media format or stream is not supported.'); }}
     />
 
+    {gestureFeedback && <div className={`pointer-events-none absolute top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-4 shadow-xl backdrop-blur ${gestureFeedback.kind === 'volume' ? 'left-4' : 'right-4'}`}>
+      {gestureFeedback.kind === 'volume' ? <Volume2 className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+      <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/20">
+        <div className="w-full rounded-full bg-sky-300 transition-[height] duration-75" style={{ height: `${Math.round(gestureFeedback.value * 100)}%` }} />
+      </div>
+      <span className="text-[10px] tabular-nums text-white/80">{Math.round((gestureFeedback.kind === 'brightness' ? gestureFeedback.value + 0.5 : gestureFeedback.value) * 100)}%</span>
+    </div>}
+
     {subtitleEnabled && subtitleText && <div className="pointer-events-none absolute bottom-28 left-4 right-4 z-20 whitespace-pre-line text-center font-semibold drop-shadow-[0_2px_3px_rgba(0,0,0,.95)]" style={{ fontSize: `clamp(16px, ${subtitleStyle.size}px, 40px)`, color: subtitleStyle.color }}>{subtitleText}</div>}
     {loading && !error && <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20"><span className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-sky-400" aria-label="Buffering" /></div>}
     {error && <div className="absolute inset-x-5 top-1/2 z-30 -translate-y-1/2 rounded-2xl bg-black/80 p-5 text-center"><p role="alert" className="text-sm text-rose-100">{error}</p><button onClick={() => { setError(''); if (videoRef.current) { videoRef.current.load(); void videoRef.current.play().catch(() => {}); } }} className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm">Retry</button></div>}
@@ -675,7 +725,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     <header className={`absolute inset-x-0 top-0 z-20 flex items-center gap-1 bg-gradient-to-b from-black/90 to-transparent px-2 pb-8 pt-[max(1rem,env(safe-area-inset-top))] transition-opacity sm:gap-2 sm:px-3 ${controlsVisible && !locked ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
       <button onClick={onBack} aria-label="Back to folders" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><ArrowLeft className="h-5 w-5" /></button>
       <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-semibold sm:text-base">{video.name}</h1>{queue.length > 1 && <p className="text-xs text-white/60">{queueIndex + 1} of {queue.length}</p>}</div>
-      <button onClick={() => { if (audioTracks.length) { setMenuPanel('Audio Track'); setMenuOpen(true); } else setToast('Embedded audio-track selection is not exposed by this browser for this file.'); }} aria-label="Audio track" title={mainTrack?.label || 'Audio track'} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><Music2 className="h-5 w-5" /></button>
+      <button onClick={() => { if (audioTracks.length) { setMenuPanel('Audio Track'); setMenuOpen(true); } else setToast('This browser cannot expose audio tracks for this file. If it stays silent, its audio codec may be unsupported; try a different audio track or an MP4 with AAC audio.'); }} aria-label="Audio track" title={mainTrack?.label || 'Audio track'} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><Music2 className="h-5 w-5" /></button>
       <button onClick={() => changeSpeed(([0.5, 0.75, 1, 1.25, 1.5, 2][([0.5, 0.75, 1, 1.25, 1.5, 2].indexOf(speed) + 1) % 6]))} aria-label="Playback speed" title="Change playback speed" className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full px-2 text-sm font-semibold hover:bg-white/10">{speed.toFixed(speed % 1 ? 2 : 0)}×</button>
       <button onClick={() => { if (!subtitleName) { setMenuPanel('Subtitle'); setMenuOpen(true); } else setSubtitleEnabled((value) => !value); }} aria-label="Toggle subtitles" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><Subtitles className="h-5 w-5" /></button>
       <button onClick={() => void changeOrientation()} aria-label="Rotate screen" className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 sm:flex"><RotateCw className="h-5 w-5" /></button>
