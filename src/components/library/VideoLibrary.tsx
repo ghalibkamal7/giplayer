@@ -2,7 +2,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, Check, ChevronRight, Folder, FolderOpen,
   Grid2X2, Heart, List, LockKeyhole, Music2, Play, Plus, RefreshCw, Search, Share2,
-  Trash2, Video, X, Globe2, UserRound, Clock3, Settings2, Shield,
+  Trash2, Video, X, Globe2, UserRound, Clock3, Settings2, Shield, MoreHorizontal,
 } from 'lucide-react';
 import { buildMediaFolderTree, getMediaDirectory, getPlayerPreference, makeVideoId, playerLibrary, RememberedDirectoryHandle, SavedDirectory, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
 import { fingerprintMediaId, getVaultFingerprints, getVaultMediaIdentity } from '../../services/privacyVault';
@@ -161,6 +161,8 @@ export const VideoLibrary = ({
   const [isCheckingLibrary, setIsCheckingLibrary] = useState(true);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [quickView, setQuickView] = useState<PlaylistView>(null);
+  const [libraryMenuOpen, setLibraryMenuOpen] = useState(false);
+  const [folderMenuOpen, setFolderMenuOpen] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [sort, setSort] = useState<'name' | 'date' | 'size'>('name');
@@ -187,6 +189,41 @@ export const VideoLibrary = ({
     setDisplayEnabled(getPlayerPreference('giplayer-video-display', 'true') !== 'false');
     setShortcutsEnabled(getPlayerPreference('giplayer-shortcuts', 'true') !== 'false');
   }, [quickView]);
+
+  const libraryMenuRef = useRef<HTMLDivElement>(null);
+  const folderMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!libraryMenuOpen) return;
+    const closeMenu = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && !libraryMenuRef.current?.contains(event.target)) setLibraryMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLibraryMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeMenu);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenu);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [libraryMenuOpen]);
+  useEffect(() => {
+    if (!folderMenuOpen) return;
+    const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      if (folderMenuRef.current?.contains(event.target) || event.target.closest('[data-folder-action-trigger]')) return;
+      setFolderMenuOpen(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFolderMenuOpen(null);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [folderMenuOpen]);
 
   const directoryFor = (video: VideoFile) => {
     const path = getMediaDirectory(video.relativePath);
@@ -319,11 +356,14 @@ export const VideoLibrary = ({
       try {
         const handle = await directoryWindow.showDirectoryPicker();
         setRememberedDirectoryName(handle.name);
-        setNeedsDirectoryPermission(false);
         if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
         const saved = await playerLibrary.saveDirectoryHandle(handle);
         if (saved) {
           setSavedDirectories((current) => [...current.filter((item) => item.id !== saved.id), saved]);
+          const remainingPending = pendingDirectoryIds.filter((id) => id !== saved.id);
+          setPendingDirectoryIds(remainingPending);
+          setNeedsDirectoryPermission(remainingPending.length > 0);
+          setNotice('');
           await scanDirectory(saved);
         } else {
           const scan = await readDirectory(handle);
@@ -355,6 +395,7 @@ export const VideoLibrary = ({
       const remainingPermissions = pendingDirectoryIds.filter((id) => id !== directory.id);
       setPendingDirectoryIds(remainingPermissions);
       setNeedsDirectoryPermission(remainingPermissions.length > 0);
+      setNotice('');
       await scanDirectory(directory, true);
     } catch (error) {
       console.error(`Could not scan the saved folder ${directory.name}.`, error);
@@ -411,13 +452,12 @@ export const VideoLibrary = ({
             await scanDirectory(directory);
             if (!active) return;
           }
-          if (pending.length) setNotice(`${pending.length} saved folder${pending.length === 1 ? '' : 's'} need access. Restore access individually below.`);
         }
       } catch (error) {
         console.error('Could not automatically scan the remembered folder.', error);
         if (active) {
+          setPendingDirectoryIds(directories.map((directory) => directory.id));
           setNeedsDirectoryPermission(true);
-          setNotice('Could not automatically scan saved folders. Restore folder access or choose folders again.');
         }
       } finally {
         if (active) setIsImporting(false);
@@ -429,8 +469,6 @@ export const VideoLibrary = ({
 
   const handleFallbackImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
-    setPendingDirectoryIds([]);
-    setNeedsDirectoryPermission(false);
     const picked = files.map((file) => ({
       file,
       path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
@@ -458,6 +496,10 @@ export const VideoLibrary = ({
             })
           : activeFolder ? directFolderVideos : videos.filter((video) => directoryFor(video) === '');
   const listMode = !grid;
+  const continueVideos = videos.filter((video) => {
+    const position = Number(getPlayerPreference(`giplayer-playback:${video.id}`, '0'));
+    return video.kind === 'video' && position > 5 && (!video.duration || position < video.duration - 5);
+  }).sort((a, b) => Number(getPlayerPreference(`giplayer-playback:${b.id}`, '0')) - Number(getPlayerPreference(`giplayer-playback:${a.id}`, '0')));
 
   const shareVideo = async (video: VideoFile) => {
     try {
@@ -648,64 +690,67 @@ export const VideoLibrary = ({
     { label: 'Recent', icon: RefreshCw, view: 'recent' },
     { label: 'Favorites', icon: Heart, view: 'favorites' },
   ];
-  const isNavigationActive = (view: PlaylistView) => quickView === view && !activeFolder;
+  const isNavigationActive = (view: PlaylistView) => view === null ? quickView === null : quickView === view;
 
   const header = (
-    <header className="app-main-header sticky top-0 z-20 border-b px-4 pb-3 pt-[max(.75rem,env(safe-area-inset-top))] sm:px-7">
-      <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:flex">
-        <div className="flex min-w-0 items-center gap-2">
+    <header className="app-main-header sticky top-0 z-20 border-b px-4 py-2.5 sm:px-7">
+      <div ref={libraryMenuRef} className="relative mx-auto flex max-w-6xl items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {(activeFolder || quickView) && (
             <button onClick={goBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-300 hover:bg-white/10" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
           )}
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-300 text-slate-950"><Play className="h-4 w-4 fill-current" /></span>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-300 text-slate-950"><Play className="h-[18px] w-[18px] fill-current" /></span>
           <span className="min-w-0">
-            <span className="block text-[13px] font-extrabold leading-4 tracking-[.08em] text-white">GIPlayer</span>
-            <h1 className="truncate text-xs font-medium leading-4 text-slate-400 sm:text-sm">{playlistSelection?.name ?? currentFolder?.name ?? (quickView ? ({
+            <span className="block text-base font-extrabold leading-5 tracking-[-.02em] text-white">GIPlayer</span>
+            <h1 className="truncate text-xs font-medium leading-4 text-slate-400">{playlistSelection?.name ?? currentFolder?.name ?? (quickView ? ({
               music: 'Music', playlists: 'Video Playlists', share: 'GIPlayer Share', privacy: 'Privacy Vault',
               stream: 'Network Stream', folders: 'Folder access', profile: 'Local profile',
               favorites: 'Favorites', recent: 'Recently Added', continue: 'Continue Watching', settings: 'Player Settings',
             } as Record<NonNullable<PlaylistView>, string>)[quickView] : 'Folders')}</h1>
           </span>
         </div>
-        <div className="col-span-2 flex items-center justify-end gap-1 sm:ml-auto sm:col-span-1 sm:gap-1.5">
-          <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 hover:text-white" aria-label="Search"><Search className="h-5 w-5" /></button>
-          <button onClick={() => setGrid((value) => !value)} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 hover:text-white" aria-label={grid ? 'List view' : 'Grid view'}>{grid ? <List className="h-5 w-5" /> : <Grid2X2 className="h-5 w-5" />}</button>
-          {savedDirectories.length > 0 && <button onClick={() => setQuickView('folders')} className={`app-nav-item hidden shrink-0 rounded-xl px-3 py-2 text-xs font-semibold sm:block ${needsDirectoryPermission ? 'bg-amber-400/10 text-amber-200' : 'bg-white/5 text-slate-300'}`} aria-label="Manage saved folder access">{needsDirectoryPermission ? 'Restore folders' : `${savedDirectories.length} folders`}</button>}
-          {savedDirectories.length > 0 && <button onClick={() => {
-            for (const directory of savedDirectories) void scanDirectory(directory, true).catch((error) => {
-              console.error(`Could not rescan ${directory.name}.`, error);
-              setNotice(`Could not rescan ${directory.name}. Restore its access first.`);
-            });
-          }} disabled={isImporting} className="app-nav-item hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 disabled:opacity-50 sm:flex" title="Rescan saved folders" aria-label="Rescan saved folders"><RefreshCw className={`h-5 w-5 ${isImporting ? 'animate-spin' : ''}`} /></button>}
-          <button onClick={() => void importFolder()} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" aria-label="Choose local folder" title="Choose local folder" disabled={isImporting}><FolderOpen className="h-5 w-5" /></button>
-          <button onClick={() => navigateTo('profile')} className="ml-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 text-slate-300 ring-1 ring-white/10 hover:ring-sky-300/50" aria-label="Open local profile" title={profile.displayName || 'Local profile'}>{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}</button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button onClick={() => { setSearchOpen((value) => !value); setSearch(''); }} className="app-nav-item hidden h-10 w-10 items-center justify-center rounded-full text-slate-300 hover:bg-white/5 hover:text-white min-[360px]:flex" aria-label="Search"><Search className="h-5 w-5" /></button>
+          <button onClick={() => setLibraryMenuOpen((value) => !value)} className={`app-nav-item flex h-10 w-10 items-center justify-center rounded-full text-slate-300 hover:bg-white/5 hover:text-white ${libraryMenuOpen ? 'bg-white/[.07] text-white' : ''}`} aria-label="Library menu" aria-expanded={libraryMenuOpen} aria-controls="library-actions-menu"><MoreHorizontal className="h-6 w-6" /></button>
+          <button onClick={() => navigateTo('profile')} className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 text-slate-300 ring-1 ring-white/10 hover:ring-sky-300/50" aria-label="Open local profile" title={profile.displayName || 'Local profile'}>{profile.avatar ? <img src={profile.avatar} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}</button>
         </div>
+        {libraryMenuOpen && <div id="library-actions-menu" role="menu" aria-label="Library actions" className="app-surface-raised absolute right-0 top-full z-40 mt-2 max-h-[min(70dvh,28rem)] w-64 overflow-y-auto rounded-xl border p-1.5 shadow-2xl shadow-black/50">
+          {[
+            { label: 'Search library', icon: Search, action: () => { setSearchOpen(true); setSearch(''); } },
+            { label: 'Choose media folder', icon: FolderOpen, action: () => { void importFolder(); } },
+            ...(savedDirectories.length ? [{ label: 'Manage saved folders', icon: Folder, action: () => navigateTo('folders') }] : []),
+            ...(savedDirectories.length ? [{ label: 'Rescan saved folders', icon: RefreshCw, action: () => {
+              for (const directory of savedDirectories) void scanDirectory(directory, true).catch((error) => {
+                console.error(`Could not rescan ${directory.name}.`, error);
+                setNotice(`Could not rescan ${directory.name}. Restore its access first.`);
+              });
+            } }] : []),
+            { label: grid ? 'Switch to list view' : 'Switch to grid view', icon: grid ? List : Grid2X2, action: () => setGrid((value) => !value) },
+            { label: 'Continue watching', icon: Clock3, action: () => navigateTo('continue') },
+            { label: 'GIPlayer Share', icon: Share2, action: () => navigateTo('share') },
+            { label: 'Network stream', icon: Globe2, action: () => navigateTo('stream') },
+            { label: 'Settings', icon: Settings2, action: () => navigateTo('settings') },
+          ].map(({ label, icon: Icon, action }) => <button key={label} role="menuitem" onClick={() => { action(); setLibraryMenuOpen(false); }} className={`app-nav-item flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-slate-200 hover:bg-white/[.07] ${label === 'Search library' ? 'min-[360px]:hidden' : ''}`}><Icon className="h-[18px] w-[18px] text-slate-400" />{label}</button>)}
+        </div>}
       </div>
       {searchOpen && (
         <div className="mx-auto mt-3 max-w-6xl">
           <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} placeholder="Search videos and folders" className="w-full rounded-xl border border-white/10 bg-[#12171b] px-4 py-2.5 text-white outline-none focus:border-sky-400" />
         </div>
       )}
-      {!activeFolder && !quickView && (
-        <nav aria-label="Library shortcuts" className="scrollbar-none mx-auto mt-3 flex max-w-6xl gap-2 overflow-x-auto pb-1 lg:hidden">
-          {[
-            ...navigationItems.filter((item) => item.view === 'playlists').map((item) => ({ label: item.label, icon: <item.icon className="h-4 w-4" />, action: () => navigateTo(item.view) })),
-            { label: 'Settings', icon: <Settings2 className="h-4 w-4" />, action: () => navigateTo('settings') },
-            { label: 'GIPlayer Share', icon: <Share2 className="h-4 w-4" />, action: () => navigateTo('share') },
-            { label: 'Network Stream', icon: <Globe2 className="h-4 w-4" />, action: () => navigateTo('stream') },
-          ].map((item) => <button key={item.label} onClick={item.action} className="app-nav-item flex shrink-0 items-center gap-2 rounded-xl border border-white/5 bg-[#151b1f] px-3.5 py-2.5 text-sm font-medium text-slate-300 hover:border-white/10 hover:bg-[#1c2328] hover:text-white">{item.icon}<span>{item.label}</span></button>)}
-        </nav>
-      )}
       <input ref={inputRef} type="file" multiple accept="video/*,audio/*,.mkv,.avi,.wmv,.flv,.m2ts,.mts,.vob,.mpg,.mpeg" onChange={(event) => void handleFallbackImport(event)} className="hidden" {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>} />
       <input ref={fileInputRef} type="file" multiple accept="video/*,audio/*,.mkv,.avi,.wmv,.flv,.m2ts,.mts,.vob,.mpg,.mpeg" onChange={(event) => void handleFallbackImport(event)} className="hidden" />
     </header>
   );
 
-  const videoCard = (video: VideoFile) => (
-    <article key={video.id} className={`group relative min-w-0 ${listMode ? 'flex items-center gap-3 rounded-xl border border-white/[.06] bg-[#141a1e] p-2.5 transition-colors hover:border-white/[.14] hover:bg-[#181f23] sm:gap-4 sm:p-3' : ''}`}>
+  const videoCard = (video: VideoFile) => {
+    const savedPosition = video.privateVault ? 0 : Number(getPlayerPreference(`giplayer-playback:${video.id}`, '0'));
+    const progress = video.duration && savedPosition > 0 ? Math.min(100, savedPosition / video.duration * 100) : 0;
+    return <article key={video.id} className={`group relative min-w-0 ${listMode ? 'flex items-center gap-3 rounded-xl border border-white/[.06] bg-[#141a1e] p-2.5 transition-colors hover:border-white/[.14] hover:bg-[#181f23] sm:gap-4 sm:p-3' : ''}`}>
       <button onClick={() => playVideo(video)} className={`relative block overflow-hidden text-left ${listMode ? 'h-20 w-32 shrink-0 rounded-xl' : 'aspect-video w-full'}`} aria-label={`Play ${video.name}`}>
         {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.025]" /> : <div className="flex h-full w-full items-center justify-center bg-[#20282d]">{video.kind === 'audio' ? <Music2 className="h-8 w-8 text-slate-500" /> : <Video className="h-8 w-8 text-slate-500" />}</div>}
         <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">{formatDuration(video.duration ?? Number.NaN)}</span>
+        {progress > 0 && <span className="absolute inset-x-0 bottom-0 h-1 bg-white/25"><span className="block h-full bg-sky-300" style={{ width: `${progress}%` }} /></span>}
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/15"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-950 opacity-0 shadow-lg transition group-hover:opacity-100"><Play className="ml-0.5 h-4 w-4 fill-current" /></span></span>
       </button>
       <div className={`min-w-0 flex-1 ${listMode ? 'py-1 pr-1' : 'pt-2'}`}>
@@ -714,24 +759,27 @@ export const VideoLibrary = ({
       </div>
       {video.kind === 'video' && <button onClick={() => toggleFavorite(video)} className={`app-nav-item rounded-full p-2 hover:bg-white/10 ${favorites.has(video.id) ? 'text-rose-300' : 'text-slate-400'} ${listMode ? '' : 'absolute right-2 top-2 bg-black/55 backdrop-blur-sm'}`} aria-label={`${favorites.has(video.id) ? 'Remove' : 'Add'} ${video.name} ${favorites.has(video.id) ? 'from' : 'to'} favorites`}><Heart className={`h-4 w-4 ${favorites.has(video.id) ? 'fill-current' : ''}`} /></button>}
       {listMode && <button onClick={() => void shareVideo(video)} className="app-nav-item rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-sky-300" aria-label={`Share ${video.name}`}><Share2 className="h-4 w-4" /></button>}
-    </article>
-  );
+    </article>;
+  };
 
   const folderCard = (folder: FolderEntry) => (
-    <article key={folder.path} className="group flex items-center gap-3 rounded-xl border border-white/[.06] bg-[#141a1e] p-3 transition-colors hover:border-white/[.14] hover:bg-[#191f23] sm:gap-4 sm:p-3.5">
+    <article key={folder.path} className="group relative flex min-w-0 items-center gap-3 border-b border-white/[.07] py-3 transition-colors hover:bg-white/[.02] sm:gap-4">
       <button onClick={() => openFolder(folder)} className="flex min-w-0 flex-1 items-center gap-4 text-left">
-        <div className="relative flex h-14 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#20282d] sm:h-16 sm:w-20">
-          {folder.videos[0]?.thumbnail ? <img src={folder.videos[0].thumbnail} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Folder className="h-8 w-8 fill-slate-400/15 text-slate-400" />}
-          {folder.videos.some((video) => Date.now() - video.lastModified < 86400000) && <span className="absolute right-1 top-1 rounded bg-sky-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-950">New</span>}
+        <div className="relative flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#1a2126] sm:h-14 sm:w-[4.5rem]">
+          {folder.videos[0]?.thumbnail ? <img src={folder.videos[0].thumbnail} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Folder className="h-6 w-6 fill-slate-400/15 text-slate-400" />}
+          {folder.videos.some((video) => Date.now() - video.lastModified < 86400000) && <span className="absolute right-1 top-1 rounded bg-sky-300 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-slate-950">New</span>}
         </div>
         <span className="min-w-0 flex-1">
           <strong className="block truncate text-sm font-semibold">{folder.name}</strong>
-          <span className="mt-1 block text-xs text-slate-400">{folder.videos.length} video{folder.videos.length === 1 ? '' : 's'} <span className="px-1 text-slate-600">·</span> Updated {new Date(Math.max(...folder.videos.map((video) => video.lastModified))).toLocaleDateString()}</span>
+          <span className="mt-1 block truncate text-xs text-slate-400">{folder.videos.length} video{folder.videos.length === 1 ? '' : 's'} <span className="px-1 text-slate-600">·</span> Updated {new Date(Math.max(...folder.videos.map((video) => video.lastModified))).toLocaleDateString()}</span>
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-slate-200" />
       </button>
-      <button onClick={() => { setRequestedVaultVideos(folder.videos); setQuickView('privacy'); }} className="app-nav-item rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white" title="Encrypt folder videos into Privacy Vault" aria-label={`Lock ${folder.name} videos`}><LockKeyhole className="h-4 w-4" /></button>
-      <button onClick={() => addFolderToPlaylist(folder)} className="app-nav-item rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white" title="Add folder videos to playlist" aria-label={`Add ${folder.name} to playlist`}><Plus className="h-4 w-4" /></button>
+      <button data-folder-action-trigger onClick={() => setFolderMenuOpen((path) => path === folder.path ? null : folder.path)} className="app-nav-item flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-white/5 hover:text-white" title="Folder actions" aria-label={`Actions for ${folder.name}`} aria-expanded={folderMenuOpen === folder.path}><MoreHorizontal className="h-5 w-5" /></button>
+      {folderMenuOpen === folder.path && <div ref={folderMenuRef} role="menu" className="app-surface-raised absolute right-0 top-full z-20 w-52 rounded-xl border p-1.5 shadow-xl shadow-black/40">
+        <button role="menuitem" onClick={() => { setRequestedVaultVideos(folder.videos); setQuickView('privacy'); setFolderMenuOpen(null); }} className="app-nav-item flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-slate-200 hover:bg-white/[.07]"><LockKeyhole className="h-4 w-4 text-slate-400" />Encrypt in Privacy Vault</button>
+        <button role="menuitem" onClick={() => { addFolderToPlaylist(folder); setFolderMenuOpen(null); }} className="app-nav-item flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-slate-200 hover:bg-white/[.07]"><Plus className="h-4 w-4 text-slate-400" />Add to playlist</button>
+      </div>}
     </article>
   );
 
@@ -826,31 +874,52 @@ export const VideoLibrary = ({
     const filteredFolders = folders.filter((folder) => `${folder.name} ${folder.path}`.toLowerCase().includes(search.trim().toLowerCase()));
     const rootVideoMatches = matchingVideos(videos.filter((video) =>
       video.kind === 'video' && (!search.trim() || video.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))));
-    const emptyLibrary = (
-      <div className="app-surface mx-auto mt-8 max-w-2xl rounded-2xl border px-6 py-9 text-center sm:px-10">
-        <FolderOpen className="mx-auto h-12 w-12 text-sky-400" />
-        <h2 className="mt-4 text-xl font-bold">{isCheckingLibrary ? 'Checking your library…' : isImporting ? 'Scanning selected media…' : needsDirectoryPermission ? `Restore access to ${rememberedDirectoryName}` : 'Build your video library'}</h2>
-        <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-400">
-          {isCheckingLibrary
-            ? 'Checking whether a previously selected folder can be scanned.'
-            : needsDirectoryPermission
-              ? 'Your browser remembers the folder, but needs your permission before GIPlayer can scan it.'
-              : supportsDirectoryAccess
-                ? 'Choose a media folder and approve the browser prompt. GIPlayer scans compatible videos and music in that folder and its subfolders. It cannot request access to the rest of your device.'
-                : 'For privacy, this browser cannot scan your device automatically. Choose a folder or select the videos and music you want GIPlayer to show.'}
-        </p>
-        {!isCheckingLibrary && !isImporting && (
-          <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-            {supportsDirectoryAccess
-              ? <button onClick={() => {
-                if (needsDirectoryPermission) setQuickView('folders');
-                else void importFolder();
-              }} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />{needsDirectoryPermission ? 'Restore folders' : 'Choose media folder'}</button>
-              : <button onClick={() => inputRef.current && 'webkitdirectory' in inputRef.current ? inputRef.current.click() : fileInputRef.current?.click()} className="rounded-xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950"><FolderOpen className="mr-2 inline h-4 w-4" />Choose media folder</button>}
-            <button onClick={() => fileInputRef.current?.click()} className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10"><Video className="mr-2 inline h-4 w-4" />Select videos and music</button>
+    const directoriesNeedingAccess = savedDirectories.filter((directory) => pendingDirectoryIds.includes(directory.id));
+    const recoveryDirectories = directoriesNeedingAccess.length
+      ? directoriesNeedingAccess
+      : needsDirectoryPermission ? savedDirectories : [];
+    const permissionRecovery = needsDirectoryPermission && !isCheckingLibrary && (
+      <section aria-labelledby="restore-access-heading" className="mt-4 border-y border-amber-300/15 py-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-300/10 text-amber-200"><FolderOpen className="h-[18px] w-[18px]" /></span>
+          <div className="min-w-0 flex-1">
+            <h2 id="restore-access-heading" className="text-sm font-semibold text-white">Folder access needs restoring</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-400">Chrome needs approval again for these saved folders. Your other media remains available.</p>
           </div>
-        )}
-        {!supportsDirectoryAccess && !isCheckingLibrary && <p className="mt-4 text-xs text-slate-500">Automatic folder scanning depends on browser support and explicit folder permission. It cannot access all Android storage in the background.</p>}
+        </div>
+        <div className="mt-3 divide-y divide-white/[.06]">
+          {recoveryDirectories.map((directory) => <div key={directory.id} className="flex min-h-12 items-center gap-3 py-2">
+            <Folder className="h-4 w-4 shrink-0 text-amber-200/80" />
+            <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{directory.name}</span>
+            <button onClick={() => void restoreRememberedFolder(directory)} disabled={isImporting} className="min-h-10 shrink-0 rounded-lg bg-amber-200 px-3 text-xs font-semibold text-slate-950 hover:bg-amber-100 disabled:opacity-50">Restore access</button>
+          </div>)}
+          {!recoveryDirectories.length && <p className="py-2 text-sm text-slate-400">Choose the folder again to restore its saved access.</p>}
+        </div>
+        {notice && <div role="status" className="mt-2 flex items-start gap-2 rounded-lg bg-white/[.04] px-3 py-2 text-xs leading-5 text-slate-300"><span className="min-w-0 flex-1">{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss message" className="rounded p-1 text-slate-400 hover:bg-white/10"><X className="h-4 w-4" /></button></div>}
+        <button onClick={() => fileInputRef.current?.click()} className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-xs font-medium text-slate-300 hover:bg-white/[.05]"><Video className="h-4 w-4" />Select media instead</button>
+      </section>
+    );
+    const emptyLibrary = (
+      <div className="mx-auto mt-4 max-w-2xl px-1 py-4 sm:py-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-300/10 text-sky-200"><FolderOpen className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold">{isCheckingLibrary ? 'Checking saved folders' : isImporting ? 'Scanning your media' : 'Start with a folder'}</h2>
+            <p className="mt-1 max-w-prose text-sm leading-6 text-slate-400">
+              {isCheckingLibrary
+                ? 'Checking whether your previous folder selection is still available.'
+                : isImporting
+                  ? 'GIPlayer is organizing the videos and music you selected.'
+                  : supportsDirectoryAccess
+                    ? 'Choose a folder to organize its videos and music. Chrome will ask which folder GIPlayer can access.'
+                    : 'Choose a folder or select files. Browsers do not grant background access to the rest of your device.'}
+            </p>
+          </div>
+        </div>
+        {!isCheckingLibrary && !isImporting && <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={() => void importFolder()} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-sky-300 px-4 text-sm font-semibold text-slate-950 hover:bg-sky-200"><FolderOpen className="h-4 w-4" />Choose folder</button>
+          <button onClick={() => fileInputRef.current?.click()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/10 px-4 text-sm font-medium text-slate-200 hover:bg-white/[.05]"><Video className="h-4 w-4" />Select media</button>
+        </div>}
       </div>
     );
     const visibleDirectVideos = activeFolder
@@ -875,7 +944,7 @@ export const VideoLibrary = ({
         {filteredFolders.length > 0 && (
           <section className="mt-7">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Folders</h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{filteredFolders.map(folderCard)}</div>
+            <div className="divide-y divide-white/[.07]">{filteredFolders.map(folderCard)}</div>
           </section>
         )}
         {items.length > 0 && (
@@ -902,10 +971,15 @@ export const VideoLibrary = ({
             <option value="name">Name</option><option value="date">Recently added</option><option value="size">File size</option>
           </select></label>
         </div>}
+        {permissionRecovery}
+        {quickView === null && !activeFolder && continueVideos.length > 0 && <section className="mt-6">
+          <div className="mb-3 flex items-baseline justify-between"><h2 className="text-sm font-semibold text-white">Continue watching</h2><button onClick={() => navigateTo('continue')} className="min-h-10 px-2 text-xs font-medium text-sky-200 hover:text-white">See all</button></div>
+          <div className="scrollbar-none -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">{continueVideos.slice(0, 8).map((video) => <div key={video.id} className="w-[66vw] max-w-56 shrink-0 snap-start sm:w-56">{videoCard(video)}</div>)}</div>
+        </section>}
         {filteredFolders.length || visibleDirectVideos.length
           ? renderFolderContents(visibleDirectVideos)
           : videos.length === 0
-            ? emptyLibrary
+            ? needsDirectoryPermission ? null : emptyLibrary
             : <p className="app-surface mt-8 rounded-xl border p-8 text-center text-sm text-slate-400">{search.trim() ? 'No matching folders or videos.' : 'No media found in this folder.'}</p>}
         {videos.some((video) => video.kind === 'video') && (
           <button onClick={() => {
@@ -947,18 +1021,22 @@ export const VideoLibrary = ({
     <div className="min-w-0">
       {header}
       <div className="mx-auto max-w-[1480px] px-4 pb-28 sm:px-7 lg:px-8 lg:pb-10">
-        {notice && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-sky-300/15 bg-sky-300/[.07] px-4 py-3 text-sm text-sky-100"><AudioLines className="h-4 w-4 shrink-0" /><span className="flex-1">{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss" className="rounded-md p-1 hover:bg-white/10"><X className="h-4 w-4" /></button></div>}
-        {!quickView && !activeFolder && <section className="mx-auto mt-7 max-w-6xl">
-          <div className="flex flex-col gap-4 border-b border-white/[.07] pb-5 sm:flex-row sm:items-end sm:justify-between">
-            <div><p className="text-[11px] font-semibold uppercase tracking-[.16em] text-sky-300">Your collection</p><h2 className="mt-1 text-[1.65rem] font-semibold tracking-tight text-white sm:text-3xl">Video library</h2><p className="mt-1.5 text-sm text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos <span className="px-1 text-slate-600">·</span> {folderNodes.length} folders</p></div>
-            <button onClick={() => void importFolder()} disabled={isImporting} className="app-nav-item inline-flex w-fit items-center gap-2 rounded-lg bg-sky-300 px-3.5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-sky-200 disabled:opacity-50"><Plus className="h-4 w-4" />Add media</button>
+      {notice && (!needsDirectoryPermission || quickView || activeFolder) && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-sky-300/15 bg-sky-300/[.07] px-4 py-3 text-sm text-sky-100"><AudioLines className="h-4 w-4 shrink-0" /><span className="flex-1">{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss" className="rounded-md p-1 hover:bg-white/10"><X className="h-4 w-4" /></button></div>}
+        {!quickView && !activeFolder && <section className="mx-auto mt-5 max-w-6xl">
+          <div className="flex min-h-11 items-center justify-between gap-3 pb-2">
+            <div className="min-w-0"><h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">Your library</h2>{videos.length > 0 && <p className="mt-1 text-xs text-slate-400">{videos.filter((video) => video.kind === 'video').length} videos <span className="px-1 text-slate-600">·</span> {folderNodes.length} folders</p>}</div>
+            {(videos.length > 0 || (savedDirectories.length > 0 && !needsDirectoryPermission)) && <button onClick={() => void importFolder()} disabled={isImporting} className="app-nav-item inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg bg-sky-300 px-3.5 text-sm font-semibold text-slate-950 hover:bg-sky-200 disabled:opacity-50"><Plus className="h-4 w-4" />Add media</button>}
           </div>
         </section>}
         {mainContent()}
       </div>
     </div>
-    <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-white/[.08] bg-[#0f1418]/95 px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl lg:hidden">
-      {[navigationItems[0], navigationItems[1], navigationItems[4], navigationItems[5], navigationItems[2]].map(({ label, icon: Icon, view }) => <button key={label} onClick={() => navigateTo(view)} aria-current={isNavigationActive(view) ? 'page' : undefined} className={`app-nav-item flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-medium ${isNavigationActive(view) ? 'text-sky-200' : 'text-slate-500'}`}><Icon className="h-[18px] w-[18px]" /><span>{label === 'All videos' ? 'Library' : label === 'Privacy Vault' ? 'Privacy' : label}</span></button>)}
+    <nav aria-label="Primary navigation" className="app-primary-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-white/[.08] bg-[#0c1013] px-1 pb-[max(.25rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
+      {navigationItems.map(({ label, icon: Icon, view }) => {
+        const active = isNavigationActive(view);
+        const shortLabel = label === 'All videos' ? 'Library' : label === 'Privacy Vault' ? 'Privacy' : label;
+        return <button key={label} onClick={() => navigateTo(view)} aria-label={shortLabel} title={shortLabel} aria-current={active ? 'page' : undefined} className={`app-nav-item relative flex min-h-[3.35rem] min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[9px] font-medium min-[360px]:text-[10px] ${active ? 'text-sky-200 after:absolute after:inset-x-3 after:top-0 after:h-0.5 after:rounded-full after:bg-sky-300' : 'text-slate-500 hover:text-slate-200'}`}><Icon className="h-[18px] w-[18px]" /><span className="hidden max-w-full truncate min-[360px]:block">{shortLabel}</span></button>;
+      })}
     </nav>
   </main>;
 };

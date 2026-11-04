@@ -11,8 +11,13 @@
     --app-surface-hover: #20292f;
     --app-line: rgba(255, 255, 255, 0.075);
     --app-accent: #45b4e8;
+    --app-accent-soft: rgba(69, 180, 232, 0.12);
     --app-text: #f2f5f7;
     --app-muted: #9aa8b2;
+    --app-space-unit: 0.25rem;
+    --app-control-size: 2.75rem;
+    --app-control-radius: 0.75rem;
+    --app-overlay-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
   }
 
   html {
@@ -130,6 +135,11 @@
 
 .app-nav-item:active {
   transform: scale(0.98);
+}
+
+.app-primary-nav {
+  min-height: calc(var(--app-control-size) + var(--app-space-unit));
+  box-shadow: var(--app-overlay-shadow);
 }
 
 @media (max-width: 639px) {
