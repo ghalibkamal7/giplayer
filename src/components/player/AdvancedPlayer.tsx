@@ -2,10 +2,12 @@ import { ChangeEvent, PointerEvent, TouchEvent, useCallback, useEffect, useMemo,
 import Hls from 'hls.js';
 import {
   ArrowLeft, ChevronDown, Lock, Maximize, Minimize, Music2, Ratio, RotateCw,
-  Pause, Play, SkipBack, SkipForward, Subtitles, Sun, Volume2, VolumeX,
+  Pause, Play, SkipBack, SkipForward, Subtitles, Sun, Volume2, VolumeX, X,
 } from 'lucide-react';
-import MoreOptionsMenu, { AspectRatioChoice, PanelName, PlayerVideo } from './MoreOptionsMenu';
+import MoreOptionsMenu, { AspectRatioChoice, AudioTrack, PanelName, PlayerVideo } from './MoreOptionsMenu';
 import { getPlayerPreference, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
+import { getAudioCodecSupport, inspectMediaFile } from '../../services/mediaMetadata';
+import type { ParsedAudioTrack, ParsedMediaMetadata } from '../../services/mediaMetadata';
 
 type Props = {
   video: PlayerVideo;
@@ -16,8 +18,9 @@ type Props = {
 };
 
 type SubtitleCue = { start: number; end: number; text: string };
-type AudioTrackList = { length: number; [index: number]: { id: number; label?: string; language?: string; enabled: boolean } };
+type AudioTrackList = EventTarget & { length: number; [index: number]: { id: string; label?: string; language?: string; enabled: boolean } };
 type VideoWithAudioTracks = HTMLVideoElement & { audioTracks?: AudioTrackList };
+type PlayerAudioTrack = AudioTrack;
 type TouchGesture = 'pending' | 'seek' | 'volume' | 'brightness';
 type TouchOrigin = {
   x: number;
@@ -32,6 +35,85 @@ type TouchOrigin = {
   volumeTarget: number;
 };
 const ASPECT_RATIOS: AspectRatioChoice[] = ['Fit', 'Fill', 'Stretch', 'Crop', 'Original', '16:9', '4:3'];
+
+function displayLanguage(language?: string): string | undefined {
+  if (!language) return undefined;
+  try {
+    return new Intl.DisplayNames([navigator.language], { type: 'language' }).of(language) || language;
+  } catch {
+    return language;
+  }
+}
+
+function trackPreferenceKey(track: Pick<PlayerAudioTrack, 'id' | 'language' | 'label' | 'codec' | 'channels'>): string {
+  return [track.language, track.label, track.codec, track.channels, track.id].map((value) => value?.trim().toLowerCase() ?? '').join('|');
+}
+
+function metadataTrack(track: ParsedAudioTrack, index: number, selectable: boolean, enabled: boolean): PlayerAudioTrack {
+  return {
+    id: `metadata-${index}`,
+    label: track.title || displayLanguage(track.language) || `Audio ${index + 1}`,
+    language: displayLanguage(track.language),
+    codec: track.codec || undefined,
+    channels: track.channels || undefined,
+    sampleRate: track.sampleRate || undefined,
+    isDefault: track.isDefault,
+    support: track.support,
+    enabled,
+    selectable,
+  };
+}
+
+function probeAudioCodec(codec?: string): ParsedAudioTrack['support'] {
+  if (!codec) return 'unknown';
+  const probe = document.createElement('audio');
+  return getAudioCodecSupport(codec, (mimeType) => probe.canPlayType(mimeType));
+}
+
+function resolveAudioTracks(video: HTMLVideoElement | null, hls: Hls | null, metadata: ParsedMediaMetadata | null): PlayerAudioTrack[] {
+  if (hls?.audioTracks.length) {
+    return hls.audioTracks.map((track, index) => {
+      const parsed = metadata?.audioTracks[index];
+      const language = track.lang || parsed?.language;
+      return {
+        id: `hls-${track.id}`,
+        label: track.name || parsed?.title || displayLanguage(language) || `Audio ${index + 1}`,
+        language: displayLanguage(language),
+        codec: track.audioCodec || parsed?.codec,
+        channels: track.channels || parsed?.channels,
+        sampleRate: parsed?.sampleRate,
+        isDefault: track.default,
+        support: parsed?.support ?? probeAudioCodec(track.audioCodec),
+        enabled: hls.audioTrack === track.id || (hls.audioTrack < 0 && track.default),
+        selectable: true,
+      };
+    });
+  }
+  const nativeTracks = (video as VideoWithAudioTracks | null)?.audioTracks;
+  if (nativeTracks?.length) {
+    const count = Math.max(nativeTracks.length, metadata?.audioTracks.length ?? 0);
+    return Array.from({ length: count }, (_, index) => {
+      const track = index < nativeTracks.length ? nativeTracks[index] : undefined;
+      const parsed = metadata?.audioTracks[index];
+      if (!track && parsed) return metadataTrack(parsed, index, false, false);
+      if (!track) return null;
+      const language = track.language || parsed?.language;
+      return {
+        id: `native-${track.id}`,
+        label: track.label || parsed?.title || displayLanguage(language) || `Audio ${index + 1}`,
+        language: displayLanguage(language),
+        codec: parsed?.codec,
+        channels: parsed?.channels,
+        sampleRate: parsed?.sampleRate,
+        isDefault: parsed?.isDefault,
+        support: parsed?.support,
+        enabled: track.enabled,
+        selectable: true,
+      };
+    }).filter((track): track is PlayerAudioTrack => track !== null);
+  }
+  return metadata?.audioTracks.map((track, index) => metadataTrack(track, index, false, false)) ?? [];
+}
 
 function timestamp(value: number): string {
   if (!Number.isFinite(value)) return '00:00';
@@ -109,13 +191,19 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const currentVideoId = useRef(video.id);
+  currentVideoId.current = video.id;
+  const isMounted = useRef(true);
+  const mediaMetadataCache = useRef(new Map<string, ParsedMediaMetadata>());
+  const metadataLoading = useRef(new Set<string>());
+  const metadataTimer = useRef<number | null>(null);
   const hideTimer = useRef<number | null>(null);
   const touchTimer = useRef<number | null>(null);
   const temporarySpeed = useRef<number | null>(null);
   const touchOrigin = useRef<TouchOrigin | null>(null);
   const lastTap = useRef<{ x: number; time: number } | null>(null);
   const wakeLock = useRef<{ release: () => Promise<void> } | null>(null);
-  const equalizer = useRef<{ context: AudioContext; filters: BiquadFilterNode[] } | null>(null);
+  const equalizer = useRef<{ context: AudioContext; source: MediaElementAudioSourceNode; filters: BiquadFilterNode[]; connected: boolean } | null>(null);
   const lastPositionSave = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -125,6 +213,11 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(video.duration || 0);
   const [buffered, setBuffered] = useState(0);
+  const [audioTracks, setAudioTracks] = useState<PlayerAudioTrack[]>([]);
+  const [mediaMetadata, setMediaMetadata] = useState<ParsedMediaMetadata | null>(null);
+  const [metadataStatus, setMetadataStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [metadataError, setMetadataError] = useState('');
+  const [audioDiagnostic, setAudioDiagnostic] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [speed, setSpeed] = useState(1);
@@ -155,6 +248,77 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toast, setToast] = useState('');
   const queueIndex = queue.findIndex((entry) => entry.id === video.id);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      const context = equalizer.current?.context;
+      equalizer.current = null;
+      if (context && context.state !== 'closed') {
+        void context.close().catch((error: unknown) => console.warn('Could not close the player audio context cleanly.', error));
+      }
+    };
+  }, []);
+  const refreshAudioTracks = useCallback(() => {
+    setAudioTracks(resolveAudioTracks(
+      videoRef.current,
+      hlsRef.current,
+      mediaMetadataCache.current.get(currentVideoId.current) ?? null,
+    ));
+  }, []);
+  const analyzeMedia = useCallback(async () => {
+    if (!video.file) {
+      setMetadataStatus('idle');
+      setMetadataError('');
+      return;
+    }
+    const cached = mediaMetadataCache.current.get(video.id);
+    if (cached) {
+      setMediaMetadata(cached);
+      setMetadataStatus('ready');
+      setMetadataError('');
+      return;
+    }
+    if (metadataLoading.current.has(video.id)) return;
+    const requestedVideoId = video.id;
+    metadataLoading.current.add(requestedVideoId);
+    setMetadataStatus('loading');
+    setMetadataError('');
+    try {
+      const parsed = await inspectMediaFile(video.file);
+      const probe = document.createElement('video');
+      const result: ParsedMediaMetadata = {
+        ...parsed,
+        audioTracks: parsed.audioTracks.map((track) => ({
+          ...track,
+          support: track.codec
+            ? getAudioCodecSupport(track.codec, (mimeType) => probe.canPlayType(mimeType))
+            : 'unknown',
+        })),
+      };
+      if (!isMounted.current || currentVideoId.current !== requestedVideoId) return;
+      mediaMetadataCache.current.set(requestedVideoId, result);
+      setMediaMetadata(result);
+      setMetadataStatus('ready');
+      const availableTracks = resolveAudioTracks(videoRef.current, hlsRef.current, result);
+      setAudioTracks(availableTracks);
+      const unsupported = result.audioTracks.filter((track) => track.support === 'unsupported');
+      setAudioDiagnostic(result.audioTracks.length === 0 && availableTracks.length === 0
+        ? 'No audio stream was detected in this video.'
+        : unsupported.length
+          ? `The browser does not report support for ${unsupported.map((track) => track.codec).join(', ')} audio. The video may play without sound.`
+          : result.audioTracks.length > 1 && !availableTracks.some((track) => track.selectable)
+            ? `${result.audioTracks.length} audio tracks were found, but this browser cannot switch embedded tracks in this local file.`
+            : '');
+    } catch (error) {
+      if (!isMounted.current || currentVideoId.current !== requestedVideoId) return;
+      console.error('Could not inspect local media metadata.', error);
+      setMetadataError('Could not inspect this file’s media metadata. Playback is unchanged; the browser may still expose audio tracks directly.');
+      setMetadataStatus('error');
+    } finally {
+      metadataLoading.current.delete(requestedVideoId);
+    }
+  }, [video.file, video.id]);
   useEffect(() => {
     const element = videoRef.current;
     if (!element) return;
@@ -197,6 +361,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     const element = videoRef.current;
     if (!element) return;
     let active = true;
+    if (metadataTimer.current) window.clearTimeout(metadataTimer.current);
     setLoading(true);
     setError('');
     setTime(0);
@@ -204,6 +369,11 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     setSubtitleEnabled(false);
     setSubtitleName(null);
     setSubtitleCues([]);
+    setAudioTracks([]);
+    setMediaMetadata(mediaMetadataCache.current.get(video.id) ?? null);
+    setMetadataStatus(mediaMetadataCache.current.has(video.id) ? 'ready' : 'idle');
+    setMetadataError('');
+    setAudioDiagnostic('');
     lastPositionSave.current = 0;
     hlsRef.current?.destroy();
     hlsRef.current = null;
@@ -215,6 +385,12 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     if (/\.m3u8(?:$|[?#])/i.test(video.url) && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 60 });
       hlsRef.current = hls;
+      const refreshHlsTracks = () => {
+        setAudioTracks(resolveAudioTracks(element, hls, mediaMetadataCache.current.get(video.id) ?? null));
+      };
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, refreshHlsTracks);
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, refreshHlsTracks);
+      hls.on(Hls.Events.MANIFEST_PARSED, refreshHlsTracks);
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal && active) {
           setLoading(false);
@@ -232,6 +408,12 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       element.load();
     }
 
+    const refreshNativeTracks = () => refreshAudioTracks();
+    element.addEventListener('loadedmetadata', refreshNativeTracks);
+    const nativeTrackList = (element as VideoWithAudioTracks).audioTracks;
+    nativeTrackList?.addEventListener('addtrack', refreshNativeTracks);
+    nativeTrackList?.addEventListener('removetrack', refreshNativeTracks);
+    nativeTrackList?.addEventListener('change', refreshNativeTracks);
     const restore = () => {
       if (saved > 5 && saved < (element.duration || Infinity) - 5) element.currentTime = saved;
       setLoading(false);
@@ -246,10 +428,18 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     return () => {
       active = false;
       element.removeEventListener('error', onError);
+      element.removeEventListener('loadedmetadata', refreshNativeTracks);
+      nativeTrackList?.removeEventListener('addtrack', refreshNativeTracks);
+      nativeTrackList?.removeEventListener('removetrack', refreshNativeTracks);
+      nativeTrackList?.removeEventListener('change', refreshNativeTracks);
+      if (metadataTimer.current) window.clearTimeout(metadataTimer.current);
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
-  }, [video.id, video.url, video.privateVault]);
+  }, [video.id, video.url, video.privateVault, refreshAudioTracks]);
+  useEffect(() => {
+    refreshAudioTracks();
+  }, [mediaMetadata, refreshAudioTracks]);
 
   useEffect(() => {
     if (keepAwake && 'wakeLock' in navigator) {
@@ -382,6 +572,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
         if (!AudioContextClass) throw new Error('Web Audio is unsupported.');
         const context = new AudioContextClass();
         const source = context.createMediaElementSource(element);
+        equalizer.current = { context, source, filters: [], connected: false };
         const low = context.createBiquadFilter();
         low.type = 'lowshelf';
         low.frequency.value = 180;
@@ -392,19 +583,37 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
         const high = context.createBiquadFilter();
         high.type = 'highshelf';
         high.frequency.value = 6000;
-        source.connect(low).connect(mid).connect(high).connect(context.destination);
-        equalizer.current = { context, filters: [low, mid, high] };
+        equalizer.current.filters = [low, mid, high];
       }
+      const graph = equalizer.current;
+      if (!graph.filters.length) throw new Error('Equalizer filters could not be initialized.');
+      graph.source.disconnect();
+      graph.connected = false;
+      graph.source.connect(graph.filters[0]).connect(graph.filters[1]).connect(graph.filters[2]).connect(graph.context.destination);
+      graph.connected = true;
       const gains: Record<string, [number, number, number]> = {
         Normal: [0, 0, 0], Voice: [-2, 4, 1], Bass: [6, 0, -2], Treble: [-2, 1, 6],
       };
-      equalizer.current.filters.forEach((filter, index) => {
-        filter.gain.setTargetAtTime(gains[preset]?.[index] ?? 0, equalizer.current!.context.currentTime, 0.08);
+      graph.filters.forEach((filter, index) => {
+        filter.gain.setTargetAtTime(gains[preset]?.[index] ?? 0, graph.context.currentTime, 0.08);
       });
-      void equalizer.current.context.resume();
+      void graph.context.resume().catch((error: unknown) => {
+        console.error('Could not resume the player audio context.', error);
+        setToast('The browser could not resume audio processing. Check browser audio permissions and try reloading the video.');
+      });
       setToast(`${preset} equalizer enabled.`);
     } catch {
-      setToast('The browser could not enable audio equalization for this video.');
+      const graph = equalizer.current;
+      if (graph && !graph.connected) {
+        try {
+          graph.source.disconnect();
+          graph.source.connect(graph.context.destination);
+          void graph.context.resume().catch((error: unknown) => console.error('Could not resume direct player audio after equalizer setup failed.', error));
+        } catch (error) {
+          console.error('Could not restore direct audio after equalizer setup failed.', error);
+        }
+      }
+      setToast('Equalizer setup failed. Direct audio output was restored where the browser allows it.');
     }
   };
 
@@ -444,20 +653,29 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
 
   const subtitleText = subtitleCues.find((cue) => subtitleTime + subtitleOffset >= cue.start && subtitleTime + subtitleOffset <= cue.end)?.text;
 
-  const audioTracks = (() => {
-    const tracks = (videoRef.current as VideoWithAudioTracks | null)?.audioTracks;
-    if (!tracks?.length) return [];
-    return Array.from({ length: tracks.length }, (_, index) => {
-      const track = tracks[index];
-      return { id: String(track.id), label: track.label || `Track ${index + 1}`, language: track.language, enabled: track.enabled };
-    });
-  })();
-
-  const selectAudioTrack = (id: string) => {
-    const tracks = (videoRef.current as VideoWithAudioTracks | null)?.audioTracks;
-    if (!tracks) return;
-    for (let index = 0; index < tracks.length; index += 1) tracks[index].enabled = String(tracks[index].id) === id;
+  const selectAudioTrack = (id: string, persist = true) => {
+    const element = videoRef.current;
+    if (!element) return;
+    const selected = audioTracks.find((track) => track.id === id);
+    if (!selected?.selectable) return;
+    if (id.startsWith('hls-') && hlsRef.current) {
+      hlsRef.current.audioTrack = Number(id.slice('hls-'.length));
+    } else if (id.startsWith('native-')) {
+      const tracks = (element as VideoWithAudioTracks).audioTracks;
+      if (!tracks) return;
+      const nativeId = id.slice('native-'.length);
+      for (let index = 0; index < tracks.length; index += 1) tracks[index].enabled = String(tracks[index].id) === nativeId;
+    } else return;
+    if (persist && !video.privateVault) setPlayerPreference(`giplayer-audio-track:${video.id}`, trackPreferenceKey(selected));
+    refreshAudioTracks();
   };
+  useEffect(() => {
+    if (video.privateVault) return;
+    const saved = getPlayerPreference(`giplayer-audio-track:${video.id}`, '');
+    if (!saved) return;
+    const selected = audioTracks.find((track) => track.selectable && trackPreferenceKey(track) === saved);
+    if (selected && !selected.enabled) selectAudioTrack(selected.id, false);
+  }, [audioTracks, video.id]);
 
   const exportClip = async (start: number, end: number): Promise<boolean> => {
     const element = videoRef.current as (HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream }) | null;
@@ -673,8 +891,6 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     return () => window.removeEventListener('keydown', onKey);
   }, [shortcutsEnabled, menuOpen, speed, volume, duration, togglePlay, seek, changeVolume, toggleMute, playNext, showActivity, onBack]);
 
-  const mainTrack = audioTracks[0];
-
   return <main ref={containerRef} className="fixed inset-0 z-40 flex h-[100dvh] w-full touch-none flex-col overflow-hidden bg-black text-white" onPointerMove={showActivity} onPointerUp={onPointerUp} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
     <video
       ref={videoRef}
@@ -694,7 +910,16 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
         }
         if (element.buffered.length) setBuffered(element.buffered.end(element.buffered.length - 1));
       }}
-      onLoadedMetadata={(event) => { setDuration(event.currentTarget.duration); setLoading(false); }}
+      onLoadedMetadata={(event) => {
+        setDuration(event.currentTarget.duration);
+        setLoading(false);
+        if (video.file && !mediaMetadataCache.current.has(video.id)) {
+          metadataTimer.current = window.setTimeout(() => {
+            metadataTimer.current = null;
+            if (currentVideoId.current === video.id) void analyzeMedia();
+          }, 1200);
+        }
+      }}
       onCanPlay={() => setLoading(false)}
       onWaiting={() => setLoading(true)}
       onPlaying={() => { setPlaying(true); setLoading(false); }}
@@ -709,6 +934,11 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       }}
       onError={() => { if (!loading) setError('The selected media format or stream is not supported.'); }}
     />
+
+    {audioDiagnostic && <div role="status" className="absolute left-3 right-3 top-20 z-20 mx-auto flex max-w-xl items-start gap-3 rounded-xl border border-amber-200/20 bg-black/85 p-3 text-xs leading-5 text-amber-100 shadow-lg backdrop-blur">
+      <span className="min-w-0 flex-1">{audioDiagnostic} Open Audio Track for codec details and available selections.</span>
+      <button onClick={() => setAudioDiagnostic('')} aria-label="Dismiss audio diagnostic" className="shrink-0 rounded-full p-1 hover:bg-white/10"><X className="h-4 w-4" /></button>
+    </div>}
 
     {gestureFeedback && <div className={`pointer-events-none absolute top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-4 shadow-xl backdrop-blur ${gestureFeedback.kind === 'volume' ? 'left-4' : 'right-4'}`}>
       {gestureFeedback.kind === 'volume' ? <Volume2 className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
@@ -725,7 +955,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     <header className={`absolute inset-x-0 top-0 z-20 flex items-center gap-1 bg-gradient-to-b from-black/90 to-transparent px-2 pb-8 pt-[max(1rem,env(safe-area-inset-top))] transition-opacity sm:gap-2 sm:px-3 ${controlsVisible && !locked ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
       <button onClick={onBack} aria-label="Back to folders" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><ArrowLeft className="h-5 w-5" /></button>
       <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-semibold sm:text-base">{video.name}</h1>{queue.length > 1 && <p className="text-xs text-white/60">{queueIndex + 1} of {queue.length}</p>}</div>
-      <button onClick={() => { if (audioTracks.length) { setMenuPanel('Audio Track'); setMenuOpen(true); } else setToast('This browser cannot expose audio tracks for this file. If it stays silent, its audio codec may be unsupported; try a different audio track or an MP4 with AAC audio.'); }} aria-label="Audio track" title={mainTrack?.label || 'Audio track'} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><Music2 className="h-5 w-5" /></button>
+      <button onClick={() => { setMenuPanel('Audio Track'); setMenuOpen(true); }} aria-label={`Audio tracks${audioTracks.length ? `, ${audioTracks.length} detected` : ''}`} title={audioTracks.length ? `${audioTracks.length} audio ${audioTracks.length === 1 ? 'track' : 'tracks'}` : 'Inspect audio tracks'} className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><Music2 className="h-5 w-5" />{audioTracks.length > 1 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-400 px-1 text-[9px] font-bold text-slate-950">{audioTracks.length}</span>}</button>
       <button onClick={() => changeSpeed(([0.5, 0.75, 1, 1.25, 1.5, 2][([0.5, 0.75, 1, 1.25, 1.5, 2].indexOf(speed) + 1) % 6]))} aria-label="Playback speed" title="Change playback speed" className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full px-2 text-sm font-semibold hover:bg-white/10">{speed.toFixed(speed % 1 ? 2 : 0)}×</button>
       <button onClick={() => { if (!subtitleName) { setMenuPanel('Subtitle'); setMenuOpen(true); } else setSubtitleEnabled((value) => !value); }} aria-label="Toggle subtitles" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"><Subtitles className="h-5 w-5" /></button>
       <button onClick={() => void changeOrientation()} aria-label="Rotate screen" className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 sm:flex"><RotateCw className="h-5 w-5" /></button>
@@ -762,6 +992,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       video={{ ...video, duration, width: videoRef.current?.videoWidth, height: videoRef.current?.videoHeight }}
       currentTime={time} duration={duration} onClose={() => { setMenuOpen(false); setMenuPanel(null); }} initialPanel={menuPanel}
       aspectRatio={aspectRatio} onAspectRatio={setAspectRatio} audioTracks={audioTracks} onAudioTrack={selectAudioTrack}
+      mediaMetadata={mediaMetadata} metadataStatus={metadataStatus} metadataError={metadataError} onAnalyzeMedia={analyzeMedia}
       subtitlesEnabled={subtitleEnabled} subtitleName={subtitleName} subtitleOffset={subtitleOffset}
       onSubtitleEnabled={setSubtitleEnabled} onSubtitleFile={(file) => void loadSubtitle(file)} onSubtitleOffset={setSubtitleOffset}
       onSubtitleStyle={(size, color) => setSubtitleStyle({ size, color })}

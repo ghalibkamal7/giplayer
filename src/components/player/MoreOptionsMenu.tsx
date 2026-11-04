@@ -5,6 +5,7 @@ import {
   Scissors, Settings2, Share2, SlidersHorizontal, Subtitles, Trash2, X,
 } from 'lucide-react';
 import { getPlayerPreference, playerLibrary, SavedPlaylist, setPlayerPreference } from '../../services/playerLibrary';
+import type { ParsedMediaMetadata } from '../../services/mediaMetadata';
 
 export type PlayerVideo = {
   id: string;
@@ -19,7 +20,19 @@ export type PlayerVideo = {
   privateVault?: boolean;
 };
 
-type AudioTrack = { id: string; label: string; language?: string; enabled: boolean };
+export type AudioTrack = {
+  id: string;
+  label: string;
+  language?: string;
+  codec?: string;
+  channels?: string;
+  sampleRate?: string;
+  isDefault?: boolean;
+  support?: 'supported' | 'unsupported' | 'unknown';
+  enabled: boolean;
+  selectable: boolean;
+};
+type MediaMetadataStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type PanelName = 'Audio Track' | 'Subtitle' | 'Aspect Ratio' | 'Display Settings' | 'Playlists' | 'Network Stream' | 'Information' | 'Share' | 'Cut' | 'Bookmark' | 'Tutorial' | 'More';
 
 const panelNames: { name: PanelName; icon: typeof Music2; hint: string }[] = [
@@ -53,9 +66,33 @@ function ActionButton({ children, onClick, disabled = false }: { children: React
   return <button disabled={disabled} onClick={onClick} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">{children}</button>;
 }
 
-export function AudioTrackSelector({ tracks, onSelect }: { tracks: AudioTrack[]; onSelect: (id: string) => void }) {
+export function AudioTrackSelector({ tracks, onSelect, metadataStatus, metadataError }: {
+  tracks: AudioTrack[];
+  onSelect: (id: string) => void;
+  metadataStatus: MediaMetadataStatus;
+  metadataError: string;
+}) {
   return <Section title="Audio tracks">
-    {tracks.length ? tracks.map((track) => <button key={track.id} onClick={() => onSelect(track.id)} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-white/5"><FileAudio className="h-5 w-5 text-sky-300" /><span className="flex-1"><span className="block text-sm">{track.label}</span><span className="text-xs text-slate-400">{track.language || 'Language not reported'}</span></span>{track.enabled && <Check className="h-4 w-4 text-sky-300" />}</button>) : <p className="rounded-xl bg-white/5 p-3 text-sm text-slate-400">This browser does not expose selectable embedded audio tracks for this media.</p>}
+    <p className="text-xs text-slate-400">{tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} detected{tracks.some((track) => track.selectable) ? ` · ${tracks.filter((track) => track.selectable).length} selectable` : ''}</p>
+    {tracks.length ? tracks.map((track) => <button key={track.id} disabled={!track.selectable} onClick={() => onSelect(track.id)} aria-pressed={track.enabled} className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-70">
+      <FileAudio className="h-5 w-5 shrink-0 text-sky-300" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm">{track.label}</span>
+        <span className="block truncate text-xs text-slate-400">{[track.language || 'Language not reported', track.codec, track.channels, track.sampleRate].filter(Boolean).join(' · ')}</span>
+        {track.isDefault && <span className="mt-1 inline-block rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">Default</span>}
+        {!track.selectable && <span className="ml-1 text-[10px] text-amber-200">Inspection only · browser cannot switch this track</span>}
+        {track.support === 'unsupported' && <span className="ml-1 text-[10px] text-rose-200">Browser reports unsupported codec</span>}
+      </span>
+      {track.enabled && <Check className="h-4 w-4 shrink-0 text-sky-300" />}
+    </button>) : metadataStatus === 'loading'
+      ? <p role="status" className="rounded-xl bg-white/5 p-3 text-sm text-slate-400">Inspecting media tracks locally…</p>
+      : metadataError
+        ? <p role="alert" className="rounded-xl bg-rose-950/30 p-3 text-sm text-rose-200">{metadataError}</p>
+        : metadataStatus === 'ready'
+          ? <p className="rounded-xl bg-white/5 p-3 text-sm text-slate-400">No audio stream was detected in this file.</p>
+          : <p className="rounded-xl bg-white/5 p-3 text-sm text-slate-400">Track discovery has not completed. Local files can be inspected; remote streams expose tracks only when supported by the playback engine.</p>}
+    {metadataStatus === 'loading' && tracks.length > 0 && <p role="status" className="text-xs text-slate-400">Reading local codec details…</p>}
+    {metadataError && <p role="alert" className="text-xs text-amber-200">{metadataError}</p>}
   </Section>;
 }
 
@@ -132,19 +169,63 @@ export function NetworkStreamDialog({ onPlay }: { onPlay: (url: string) => void 
       onPlay(parsed.href);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Enter a valid HTTP or HTTPS media URL.'); }
   };
-  return <form onSubmit={submit} className="space-y-3"><label className="block text-sm">Direct media URL<input autoFocus type="url" required value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/video.m3u8" className="mt-2 w-full rounded-xl bg-white/5 px-3 py-3 text-sm outline-none focus:ring-1 focus:ring-sky-400" /></label>{error && <p role="alert" className="text-sm text-rose-300">{error}</p>}<button className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950">Open stream</button><p className="text-xs text-slate-400">Direct HTTP(S) streams only. HLS requires native browser support; this player does not proxy or fetch media through a server.</p></form>;
+  return <form onSubmit={submit} className="space-y-3"><label className="block text-sm">Direct media URL<input autoFocus type="url" required value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/video.m3u8" className="mt-2 w-full rounded-xl bg-white/5 px-3 py-3 text-sm outline-none focus:ring-1 focus:ring-sky-400" /></label>{error && <p role="alert" className="text-sm text-rose-300">{error}</p>}<button className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950">Open stream</button><p className="text-xs text-slate-400">Direct HTTP(S) streams only. HLS uses Hls.js when supported or native playback; DASH depends on native browser support. This player does not proxy media through a server.</p></form>;
 }
 
-export function VideoInformation({ video, duration }: { video: PlayerVideo; duration: number }) {
+export function VideoInformation({ video, duration, metadata, audioTracks, metadataStatus, metadataError }: {
+  video: PlayerVideo;
+  duration: number;
+  metadata: ParsedMediaMetadata | null;
+  audioTracks: AudioTrack[];
+  metadataStatus: MediaMetadataStatus;
+  metadataError: string;
+}) {
+  const audioDetails = audioTracks.length ? audioTracks : (metadata?.audioTracks ?? []).map((track, index) => ({
+    id: track.id,
+    label: track.title || track.language || `Audio ${index + 1}`,
+    language: track.language,
+    codec: track.codec,
+    channels: track.channels,
+    sampleRate: track.sampleRate,
+    isDefault: track.isDefault,
+    enabled: false,
+    selectable: false,
+  }));
   const rows = [
     ['Filename', video.name],
-    ['Type', video.mimeType || video.file?.type || video.name.split('.').pop()?.toUpperCase() || 'Unknown'],
+    ['Container', metadata?.container || video.mimeType || video.file?.type || video.name.split('.').pop()?.toUpperCase() || 'Unknown'],
     ['Duration', formatTime(duration)],
-    ['Resolution', video.width && video.height ? `${video.width} × ${video.height}` : 'Unavailable'],
+    ['Video codec', metadata?.videoCodec || 'Unavailable'],
+    ['Resolution', metadata?.resolution || (video.width && video.height ? `${video.width} × ${video.height}` : 'Unavailable')],
+    ['Frame rate', metadata?.frameRate || 'Unavailable'],
+    ['Audio tracks', audioDetails.length ? String(audioDetails.length) : metadataStatus === 'loading' ? 'Inspecting…' : metadata ? '0' : 'Not detected'],
+    ['Selected audio', audioDetails.find((track) => track.enabled)?.label || 'Selection unavailable'],
     ['File size', video.file?.size ? `${(video.file.size / 1024 / 1024).toFixed(1)} MB` : video.fileSize ? `${(video.fileSize / 1024 / 1024).toFixed(1)} MB` : 'Unavailable for remote streams'],
     ['Source', video.url.startsWith('blob:') ? 'Selected local file (private to this tab)' : video.url.startsWith('http') ? new URL(video.url).host : 'Unavailable'],
   ];
-  return <dl className="space-y-3">{rows.map(([label, value]) => <div key={label} className="flex justify-between gap-4 border-b border-white/5 pb-2"><dt className="text-sm text-slate-400">{label}</dt><dd className="max-w-[65%] break-all text-right text-sm">{value}</dd></div>)}</dl>;
+  const selected = audioDetails.find((track) => track.enabled);
+  const unsupported = metadata?.audioTracks.find((track) => track.support === 'unsupported');
+  const diagnostic = metadataError
+    ? metadataError
+    : metadata && metadata.audioTracks.length === 0 && audioTracks.length === 0
+      ? 'No audio stream is present in this file.'
+      : unsupported
+        ? `The browser does not report support for ${unsupported.codec}. Try another selectable track or convert to AAC/MP3 in a compatible container.`
+        : metadata && metadata.audioTracks.length > 1 && !audioDetails.some((track) => track.selectable)
+          ? 'Multiple audio streams are present, but this browser cannot switch tracks in a local file.'
+        : selected?.codec
+          ? 'Audio track metadata is available. Codec support is browser-dependent; verify playback on this device.'
+          : metadataStatus === 'loading'
+            ? 'Inspecting audio and video metadata from file chunks; the whole video is not loaded into memory.'
+            : 'Open the Audio Track panel to inspect local-file codec metadata.';
+  return <div className="space-y-4">
+    <dl className="space-y-3">{rows.map(([label, value]) => <div key={label} className="flex justify-between gap-4 border-b border-white/5 pb-2"><dt className="text-sm text-slate-400">{label}</dt><dd className="max-w-[65%] break-all text-right text-sm">{value}</dd></div>)}</dl>
+    {audioDetails.map((track) => <div key={track.id} className="rounded-xl border border-white/[.06] bg-white/[.03] p-3">
+      <p className="text-sm font-medium">{track.label}{track.isDefault ? ' · Default' : ''}{track.enabled ? ' · Selected' : ''}</p>
+      <p className="mt-1 text-xs text-slate-400">{[track.language || 'Language not reported', track.codec || 'Codec not reported', track.channels, track.sampleRate].filter(Boolean).join(' · ')}</p>
+    </div>)}
+    <p role="status" className="rounded-xl bg-white/5 p-3 text-xs leading-5 text-slate-300">{diagnostic}</p>
+  </div>;
 }
 
 export function BookmarkManager({ videoId, currentTime, onSeek, persist = true }: { videoId: string; currentTime: number; onSeek: (time: number) => void; persist?: boolean }) {
@@ -188,6 +269,7 @@ export function PlayerSettings({ playbackSpeed, onPlaybackSpeed, repeat, onRepea
 
 export default function MoreOptionsMenu({
   video, currentTime, duration, onClose, initialPanel = null, aspectRatio, onAspectRatio, audioTracks, onAudioTrack,
+  mediaMetadata, metadataStatus, metadataError, onAnalyzeMedia,
   subtitlesEnabled, subtitleName, subtitleOffset, onSubtitleEnabled, onSubtitleFile, onSubtitleOffset,
   onSubtitleStyle, brightness, onBrightness, keepAwake, onKeepAwake, displayEnabled, onDisplayEnabled,
   shortcutsEnabled, onShortcutsEnabled, playbackSpeed, onPlaybackSpeed, repeat, onRepeat, onSleepTimer,
@@ -196,6 +278,8 @@ export default function MoreOptionsMenu({
   video: PlayerVideo; currentTime: number; duration: number; onClose: () => void; initialPanel?: PanelName | null;
   aspectRatio: AspectRatioChoice; onAspectRatio: (value: AspectRatioChoice) => void;
   audioTracks: AudioTrack[]; onAudioTrack: (id: string) => void;
+  mediaMetadata: ParsedMediaMetadata | null; metadataStatus: MediaMetadataStatus; metadataError: string;
+  onAnalyzeMedia: () => void;
   subtitlesEnabled: boolean; subtitleName: string | null; subtitleOffset: number;
   onSubtitleEnabled: (enabled: boolean) => void; onSubtitleFile: (file: File) => void; onSubtitleOffset: (offset: number) => void;
   onSubtitleStyle: (size: number, color: string) => void; brightness: number; onBrightness: (value: number) => void;
@@ -215,6 +299,9 @@ export default function MoreOptionsMenu({
   useEffect(() => {
     if (duration > 0) setCutEnd((end) => end > 0 ? Math.min(end, duration) : duration);
   }, [duration]);
+  useEffect(() => {
+    if (panel === 'Audio Track' || panel === 'Information') onAnalyzeMedia();
+  }, [panel, onAnalyzeMedia]);
 
   const share = async () => {
     try {
@@ -244,7 +331,7 @@ export default function MoreOptionsMenu({
 
   const renderPanel = () => {
     switch (panel) {
-      case 'Audio Track': return <div className="space-y-4"><AudioTrackSelector tracks={audioTracks} onSelect={onAudioTrack} /><Section title="Equalizer"><div className="flex items-center gap-2"><select value={equalizer} onChange={(event) => { setEqualizer(event.target.value); onSetEqualizer(event.target.value); }} className="flex-1 rounded-xl bg-white/5 px-3 py-2 text-sm"><option>Normal</option><option>Voice</option><option>Bass</option><option>Treble</option></select><AudioLines className="h-5 w-5 text-sky-300" /></div><p className="text-xs text-slate-400">Equalizer presets process audio only when Web Audio is supported and the stream permits it.</p></Section></div>;
+      case 'Audio Track': return <div className="space-y-4"><AudioTrackSelector tracks={audioTracks} onSelect={onAudioTrack} metadataStatus={metadataStatus} metadataError={metadataError} /><Section title="Equalizer"><div className="flex items-center gap-2"><select value={equalizer} onChange={(event) => { setEqualizer(event.target.value); onSetEqualizer(event.target.value); }} className="flex-1 rounded-xl bg-white/5 px-3 py-2 text-sm"><option>Normal</option><option>Voice</option><option>Bass</option><option>Treble</option></select><AudioLines className="h-5 w-5 text-sky-300" /></div><p className="text-xs text-slate-400">Equalizer presets process audio only when Web Audio is supported and the stream permits it.</p></Section></div>;
       case 'Subtitle': return <SubtitleSelector enabled={subtitlesEnabled} subtitleName={subtitleName} offset={subtitleOffset} onEnable={onSubtitleEnabled} onLoad={onSubtitleFile} onOffset={onSubtitleOffset} onStyle={onSubtitleStyle} />;
       case 'Aspect Ratio': return <AspectRatioSelector value={aspectRatio} onChange={onAspectRatio} />;
       case 'Display Settings': return <DisplaySettings brightness={brightness} onBrightness={onBrightness} displayEnabled={displayEnabled} onDisplayEnabled={onDisplayEnabled} keepAwake={keepAwake} onKeepAwake={onKeepAwake} />;
@@ -252,7 +339,7 @@ export default function MoreOptionsMenu({
         ? <p className="rounded-xl bg-white/5 p-4 text-sm text-slate-300">Private vault videos cannot be added to public playlists. Their names and playlist references stay private.</p>
         : <PlaylistManager video={video} onPlay={onPlayPlaylist} />;
       case 'Network Stream': return <NetworkStreamDialog onPlay={onOpenNetworkStream} />;
-      case 'Information': return <VideoInformation video={video} duration={duration} />;
+      case 'Information': return <VideoInformation video={video} duration={duration} metadata={mediaMetadata} audioTracks={audioTracks} metadataStatus={metadataStatus} metadataError={metadataError} />;
       case 'Share': return <Section title="Share media"><p className="text-sm text-slate-300">{video.file ? 'Share this selected file using the device share sheet when supported.' : `Stream host: ${info || 'not available'}.`}</p><ActionButton onClick={() => void share()}><Share2 className="mr-2 inline h-4 w-4" />Share</ActionButton><p className="text-xs text-slate-400">Local blob URLs and private file paths are never exposed. If file sharing is unsupported, the browser will show a limitation instead.</p></Section>;
       case 'Cut': return <Section title="Export a clip"><p className="text-sm text-slate-400">Captures the selected playback segment in real time where this browser supports MediaRecorder and video capture. The source file is never edited.</p><div className="grid grid-cols-2 gap-3"><label className="text-xs text-slate-400">Start (seconds)<input type="number" min="0" max={duration} step="0.1" value={cutStart} onChange={(event) => setCutStart(Number(event.target.value))} className="mt-1 w-full rounded-xl bg-white/5 p-2 text-sm text-white" /></label><label className="text-xs text-slate-400">End (seconds)<input type="number" min="0" max={duration} step="0.1" value={cutEnd} onChange={(event) => setCutEnd(Number(event.target.value))} className="mt-1 w-full rounded-xl bg-white/5 p-2 text-sm text-white" /></label></div><div className="flex gap-2"><ActionButton onClick={() => onSeek(cutStart)}>Preview start</ActionButton><ActionButton onClick={() => void handleCut()} disabled={!duration}>Export clip</ActionButton></div>{cutMessage && <p role="status" className="text-sm text-sky-200">{cutMessage}</p>}</Section>;
       case 'Bookmark': return <BookmarkManager key={video.id} videoId={video.id} currentTime={currentTime} onSeek={onSeek} persist={!video.privateVault} />;
