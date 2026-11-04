@@ -31,8 +31,8 @@ function timestamp(value: number): string {
 }
 
 export function VideoPlayerControls({
-  visible, locked, currentTime, duration, buffered, playing, muted, aspectRatio, isFullscreen,
-  onSeek, onLock, onPrevious, onTogglePlay, onNext, onAspectRatio, onFullscreen, onToggleMute,
+  visible, locked, currentTime, duration, buffered, playing, muted, volume, aspectRatio, isFullscreen,
+  onSeek, onLock, onPrevious, onTogglePlay, onNext, onAspectRatio, onFullscreen, onToggleMute, onVolume,
 }: {
   visible: boolean;
   locked: boolean;
@@ -41,6 +41,7 @@ export function VideoPlayerControls({
   buffered: number;
   playing: boolean;
   muted: boolean;
+  volume: number;
   aspectRatio: AspectRatioChoice;
   isFullscreen: boolean;
   onSeek: (time: number) => void;
@@ -51,10 +52,16 @@ export function VideoPlayerControls({
   onAspectRatio: () => void;
   onFullscreen: () => void;
   onToggleMute: () => void;
+  onVolume: (volume: number) => void;
 }) {
   const playedPercent = duration ? currentTime / duration * 100 : 0;
   const bufferedPercent = duration ? buffered / duration * 100 : 0;
   return <footer className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-3 pb-[max(.8rem,env(safe-area-inset-bottom))] pt-12 transition-opacity duration-200 sm:px-6 sm:pb-[max(1rem,env(safe-area-inset-bottom))] ${visible && !locked ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
+    <div className="mx-auto mb-2 flex max-w-xl items-center gap-3">
+      <button onClick={onToggleMute} aria-label={muted ? 'Unmute video' : 'Mute video'} title={muted ? 'Unmute video' : 'Mute video'} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white">{muted || volume === 0 ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}</button>
+      <input aria-label="Video volume" title={`Volume ${Math.round((muted ? 0 : volume) * 100)}%`} className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full accent-sky-300" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} onChange={(event) => onVolume(Number(event.target.value))} />
+      <span className="w-10 text-right text-xs tabular-nums text-white/65">{muted ? 'Muted' : `${Math.round(volume * 100)}%`}</span>
+    </div>
     <div className="mb-3 flex items-center gap-2 text-[11px] tabular-nums text-white/75 sm:gap-3 sm:text-xs"><span>{timestamp(currentTime)}</span><input aria-label="Seek video" className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full accent-sky-300" type="range" min="0" max={duration || 0} step="0.1" value={currentTime} onChange={(event: ChangeEvent<HTMLInputElement>) => onSeek(Number(event.target.value))} style={{ background: `linear-gradient(to right,#7dd3fc ${playedPercent}%,#ffffff70 ${playedPercent}%,#ffffff70 ${bufferedPercent}%,#ffffff35 ${bufferedPercent}%)` }} /><span>{timestamp(duration)}</span></div>
     <div className="mx-auto flex max-w-xl items-center justify-between gap-0.5 sm:gap-2">
       <button onClick={onLock} aria-label="Lock controls" title="Lock controls" className="flex h-11 w-11 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white"><Lock className="h-[18px] w-[18px]" /></button>
@@ -62,7 +69,6 @@ export function VideoPlayerControls({
       <button onClick={onTogglePlay} aria-label={playing ? 'Pause' : 'Play'} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 active:scale-95">{playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="ml-0.5 h-5 w-5 fill-current" />}</button>
       <button onClick={onNext} aria-label="Next video" className="flex h-11 w-11 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white"><SkipForward className="h-5 w-5 fill-current" /></button>
       <button onClick={onAspectRatio} aria-label={`Aspect ratio ${aspectRatio}`} title={`Aspect ratio: ${aspectRatio}`} className="hidden min-h-11 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-white/70 transition hover:bg-white/10 hover:text-white min-[390px]:flex"><Ratio className="h-[18px] w-[18px]" /><span>{aspectRatio}</span></button>
-      <button onClick={onToggleMute} aria-label={muted ? 'Unmute' : 'Mute'} className="hidden h-11 w-11 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white min-[390px]:flex">{muted ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}</button>
       <button onClick={onFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="flex h-11 w-11 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white">{isFullscreen ? <Minimize className="h-[18px] w-[18px]" /> : <Maximize className="h-[18px] w-[18px]" />}</button>
     </div>
   </footer>;
@@ -126,12 +132,21 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
   const [repeat, setRepeat] = useState(false);
   const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
   const [sleepSeconds, setSleepSeconds] = useState<number | null>(null);
-  const [volume, setVolume] = useState(1);
-  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(() => {
+    const saved = Number(getPlayerPreference('giplayer-player-volume', '1'));
+    return Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : 1;
+  });
+  const [muted, setMuted] = useState(() => getPlayerPreference('giplayer-player-muted', 'false') === 'true');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toast, setToast] = useState('');
   const queueIndex = queue.findIndex((entry) => entry.id === video.id);
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element) return;
+    element.volume = volume;
+    element.muted = muted || volume === 0;
+  }, [volume, muted, video.id]);
   const persistPlayback = useCallback(() => {
     if (video.privateVault) {
       try {
@@ -314,6 +329,19 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     }
     setVolume(safe);
     setMuted(safe === 0);
+    if (safe > 0) setPlayerPreference('giplayer-player-volume', String(safe));
+    setPlayerPreference('giplayer-player-muted', String(safe === 0));
+  };
+
+  const toggleMute = () => {
+    if (muted || volume === 0) {
+      const restoredVolume = volume > 0 ? volume : Number(getPlayerPreference('giplayer-player-volume', '1')) || 1;
+      changeVolume(restoredVolume);
+      return;
+    }
+    setMuted(true);
+    setPlayerPreference('giplayer-player-muted', 'true');
+    if (videoRef.current) videoRef.current.muted = true;
   };
 
   const handleEnded = () => {
@@ -576,7 +604,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
         case 'arrowleft': case 'j': event.preventDefault(); seek((videoRef.current?.currentTime || 0) - (event.key.toLowerCase() === 'j' ? 10 : 5)); break;
         case 'arrowright': case 'l': event.preventDefault(); seek((videoRef.current?.currentTime || 0) + (event.key.toLowerCase() === 'l' ? 10 : 5)); break;
         case 'f': event.preventDefault(); void toggleFullscreen(); break;
-        case 'm': setMuted((value) => { if (videoRef.current) videoRef.current.muted = !value; return !value; }); break;
+        case 'm': event.preventDefault(); toggleMute(); break;
         case 'c': setSubtitleEnabled((value) => !value); break;
         case 'arrowup': event.preventDefault(); changeVolume(volume + 0.05); break;
         case 'arrowdown': event.preventDefault(); changeVolume(volume - 0.05); break;
@@ -601,7 +629,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [shortcutsEnabled, menuOpen, speed, volume, duration, togglePlay, seek, changeVolume, playNext, showActivity, onBack]);
+  }, [shortcutsEnabled, menuOpen, speed, volume, duration, togglePlay, seek, changeVolume, toggleMute, playNext, showActivity, onBack]);
 
   const mainTrack = audioTracks[0];
 
@@ -665,6 +693,7 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       buffered={buffered}
       playing={playing}
       muted={muted}
+      volume={volume}
       aspectRatio={aspectRatio}
       isFullscreen={isFullscreen}
       onSeek={seek}
@@ -674,7 +703,8 @@ const AdvancedPlayer = ({ video, queue = [], library = queue, onBack, onChangeVi
       onNext={playNext}
       onAspectRatio={() => setAspectRatio((value) => ASPECT_RATIOS[(ASPECT_RATIOS.indexOf(value) + 1) % ASPECT_RATIOS.length])}
       onFullscreen={() => void toggleFullscreen()}
-      onToggleMute={() => { const next = !muted; setMuted(next); if (videoRef.current) videoRef.current.muted = next; }}
+      onToggleMute={toggleMute}
+      onVolume={changeVolume}
     />
 
     {toast && <button onClick={() => setToast('')} className="absolute left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/75 px-5 py-3 text-sm shadow-lg">{toast}</button>}
